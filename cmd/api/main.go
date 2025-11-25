@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/cobrich/scam-checker-api/config"
 	"github.com/cobrich/scam-checker-api/internal/repository"
@@ -23,18 +24,29 @@ func main() {
 		log.Fatalf("Ошибка конфига: %v", err)
 	}
 
-	// 2. Подключение к БД (Пул соединений)
+	// 2. Подключение к БД с повторными попытками (Retry Loop)
 	ctx := context.Background()
-	dbPool, err := pgxpool.New(ctx, cfg.PostgresURL)
+	var dbPool *pgxpool.Pool
+
+	// Пробуем подключиться 10 раз с паузой 2 секунды
+	for i := 0; i < 10; i++ {
+		dbPool, err = pgxpool.New(ctx, cfg.PostgresURL)
+		if err == nil {
+			// Если создали пул, проверяем пинг
+			if err = dbPool.Ping(ctx); err == nil {
+				break // Успех! Выходим из цикла
+			}
+		}
+
+		log.Printf("Попытка подключения к БД (%d/10) неудачна: %v. Ждем 2 сек...", i+1, err)
+		time.Sleep(2 * time.Second)
+	}
+
 	if err != nil {
-		log.Fatalf("Не удалось подключиться к БД: %v", err)
+		log.Fatalf("Не удалось подключиться к БД после всех попыток: %v", err)
 	}
 	defer dbPool.Close()
 
-	// Проверка соединения
-	if err := dbPool.Ping(ctx); err != nil {
-		log.Fatalf("БД недоступна: %v", err)
-	}
 	fmt.Println("Успешное подключение к Postgres!")
 
 	// 3. Инициализация слоев

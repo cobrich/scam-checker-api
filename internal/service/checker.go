@@ -9,31 +9,22 @@ import (
 	"time"
 
 	"github.com/cobrich/scam-checker-api/internal/domain"
+	"github.com/cobrich/scam-checker-api/internal/pkg/utils"
 	"github.com/cobrich/scam-checker-api/internal/repository"
 	"github.com/cobrich/scam-checker-api/internal/service/analyzer"
-	"github.com/cobrich/scam-checker-api/pkg/utils"
 	"github.com/oschwald/geoip2-golang"
 )
 
 type CheckerService struct {
 	repo      *repository.ThreatRepository
-	whitelist *WhitelistService // Храним сервис белого списка как поле
+	whitelist *WhitelistService
 	geoCityDB *geoip2.Reader
 	geoAsnDB  *geoip2.Reader
 }
 
 func NewCheckerService(repo *repository.ThreatRepository) *CheckerService {
-	// 1. Открываем City базу
-	cityDB, err := geoip2.Open("GeoLite2-City.mmdb")
-	if err != nil {
-		fmt.Println("Warning: GeoLite2-City.mmdb not found")
-	}
-
-	// 2. Открываем ASN базу
-	asnDB, err := geoip2.Open("GeoLite2-ASN.mmdb")
-	if err != nil {
-		fmt.Println("Warning: GeoLite2-ASN.mmdb not found")
-	}
+	cityDB, _ := geoip2.Open("GeoLite2-City.mmdb")
+	asnDB, _ := geoip2.Open("GeoLite2-ASN.mmdb")
 
 	return &CheckerService{
 		repo:      repo,
@@ -53,15 +44,18 @@ func (s *CheckerService) Close() {
 }
 
 func (s *CheckerService) Analyze(ctx context.Context, rawURL string, fullScan bool) (*domain.FullReport, error) {
+	// Инициализируем базовый отчет
 	report := &domain.FullReport{
 		Target:    rawURL,
 		RiskScore: 0,
+		Threats:   &domain.ThreatInfo{}, // Инициализируем, чтобы добавлять эвристику
 	}
 
-	// 0. Белый список (теперь быстро)
+	// 0. Whitelist (Мгновенный красивый выход)
 	if s.whitelist.IsWhitelisted(rawURL) {
-		report.Verdict = "Safe (Whitelisted)"
-		report.TechnicalFacts.IsReachable = true
+		report.Verdict = "Safe"
+		report.Reason = "Whitelisted Domain"
+		report.Threats = nil // Убираем блок угроз вообще
 		return report, nil
 	}
 
@@ -70,12 +64,14 @@ func (s *CheckerService) Analyze(ctx context.Context, rawURL string, fullScan bo
 	if err == nil && threat != nil {
 		report.RiskScore = 100
 		report.Verdict = "Dangerous"
-		report.ThreatDetection.BlacklistStatus = domain.BlacklistStatus{
-			IsListed:   true,
+		report.Reason = "Found in Blacklist"
+
+		report.Threats.Blacklist = &domain.BlacklistStatus{
 			Source:     threat.Source,
 			ExternalID: threat.ExternalID,
-			FirstSeen:  threat.CreatedAt.String(),
+			FirstSeen:  threat.CreatedAt.Format("2006-01-02"),
 		}
+
 		if !fullScan {
 			return report, nil
 		}
@@ -83,207 +79,154 @@ func (s *CheckerService) Analyze(ctx context.Context, rawURL string, fullScan bo
 
 	// --- ЭТАП 2: ЭВРИСТИКА ---
 	stringScore, rules := analyzer.AnalyzeString(rawURL)
-	report.ThreatDetection.HeuristicRules = append(report.ThreatDetection.HeuristicRules, rules...)
+	// Преобразуем правила в новый формат (если они отличаются v2, или используем как есть v1)
+	report.Threats.Heuristics = append(report.Threats.Heuristics, rules...)
+	// for _, r := range rules {
+	// 	report.Threats.Heuristics = append(report.Threats.Heuristics, domain.RuleMatch{
+	// 		Name:  r.Name,
+	// 		Desc:  r.Desc,
+	// 		Score: r.Score,
+	// 	})
+	// }
 
 	if report.RiskScore < 100 {
 		report.RiskScore += stringScore
 	}
 
-	// --- 3. ИНФРАСТРУКТУРА (DNS Check First!) ---
-	domainName, err := utils.ExtractHostname(rawURL)
-	if err != nil {
-		// Обработка ошибки, если URL совсем кривой
-		domainName = ""
+	// --- 3. ИНФРАСТРУКТУРА ---
+	domainName, _ := utils.ExtractHostname(rawURL)
+
+	// Инициализируем структуру инфраструктуры
+	report.Infrastructure = &domain.GeoNetInfo{
+		Status: "Offline", // По умолчанию
 	}
 
 	if domainName != "" {
-		// ШАГ 3.1: Пытаемся резолвить DNS (Главный фильтр)
 		ips, err := net.LookupIP(domainName)
 
-		if err != nil || len(ips) == 0 {
-			// САЙТ МЕРТВ.
-			// Мы НЕ проверяем SSL и Geo, так как это бессмысленно.
-			// Мы НЕ штрафуем за "No HTTPS", так как сайта нет.
-			report.TechnicalFacts.IsReachable = false
-		} else {
-			// САЙТ ЖИВ.
-			report.TechnicalFacts.IsReachable = true
-			report.TechnicalFacts.IP = ips[0].String()
+		if err == nil && len(ips) > 0 {
+			// САЙТ ЖИВ
+			ipStr := ips[0].String()
+			report.Infrastructure.Status = "Online"
+			report.Infrastructure.IP = ipStr
 
-			// 3.2 DNS Детали (MX, NS)
-			s.enrichDNS(domainName, report)
+			// 3.1 GeoIP
+			report.Infrastructure.Geo = s.getGeoInfo(ipStr)
+			s.evaluateHosting(report.Infrastructure.Geo, report)
 
-			// 3.3 GeoIP + ASN
-			geoInfo := s.checkGeoAndASN(report.TechnicalFacts.IP)
-			report.TechnicalFacts.ServerLocation = &geoInfo
+			// 3.2 DNS
+			report.Infrastructure.DNS = s.getDNSDetails(domainName, report)
 
-			// Оцениваем хостинг
-			s.evaluateHosting(geoInfo, report)
-
-			// 3.4 SSL (Только если сайт жив)
-			sslInfo := s.checkSSL(domainName)
-			report.TechnicalFacts.SSL = &sslInfo
-			s.evaluateSSL(sslInfo, report)
+			// 3.3 SSL
+			report.Infrastructure.SSL = s.getSSLDetails(domainName)
+			s.evaluateSSL(report.Infrastructure.SSL, report)
 		}
 	}
+
+	// Финализация
 	if report.RiskScore > 100 {
 		report.RiskScore = 100
 	}
-	report.Verdict = s.calculateVerdict(report.RiskScore)
+	if report.Verdict == "" {
+		report.Verdict = s.calculateVerdict(report.RiskScore)
+	}
+
+	// Если угроз не найдено вообще, делаем поле nil, чтобы оно исчезло из JSON
+	if report.Threats.Blacklist == nil && len(report.Threats.Heuristics) == 0 {
+		report.Threats = nil
+	}
 
 	return report, nil
 }
 
-// enrichDNS собирает MX и NS записи
-func (s *CheckerService) enrichDNS(domainName string, report *domain.FullReport) {
-	// MX
+// --- Вспомогательные методы (Refactored) ---
+
+func (s *CheckerService) getDNSDetails(domainName string, report *domain.FullReport) *domain.DNSDetails {
+	details := &domain.DNSDetails{}
+
 	mxRecords, _ := net.LookupMX(domainName)
-	if len(mxRecords) > 0 {
-		report.TechnicalFacts.DNS.HasMX = true
-		for _, mx := range mxRecords {
-			report.TechnicalFacts.DNS.MX = append(report.TechnicalFacts.DNS.MX, mx.Host)
-		}
-	} else {
-		report.TechnicalFacts.DNS.HasMX = false
-		// Штрафуем за отсутствие почты только если сайт жив
-		report.RiskScore += 15
-		report.ThreatDetection.HeuristicRules = append(report.ThreatDetection.HeuristicRules, domain.RuleMatch{
-			RuleName: "No MX Records", Description: "Domain cannot receive emails", ScoreImpact: 15,
-		})
+	for _, mx := range mxRecords {
+		details.MXRecords = append(details.MXRecords, mx.Host)
 	}
 
-	// NS (Name Servers) - очень полезно!
 	nsRecords, _ := net.LookupNS(domainName)
 	for _, ns := range nsRecords {
-		report.TechnicalFacts.DNS.NS = append(report.TechnicalFacts.DNS.NS, ns.Host)
+		details.NSRecords = append(details.NSRecords, ns.Host)
 	}
+
+	// Логика штрафа за отсутствие MX
+	if len(details.MXRecords) == 0 {
+		report.RiskScore += 15
+		report.Threats.Heuristics = append(report.Threats.Heuristics, domain.RuleMatch{
+			Name: "No MX Records", Desc: "Domain cannot receive emails", Score: 15,
+		})
+	}
+
+	return details
 }
 
-// Вынес логику оценки SSL в отдельный метод для чистоты
-func (s *CheckerService) evaluateSSL(sslInfo domain.SSLInfo, report *domain.FullReport) {
-	if !sslInfo.IsHTTPS {
-		report.RiskScore += 10
-		report.ThreatDetection.HeuristicRules = append(report.ThreatDetection.HeuristicRules, domain.RuleMatch{
-			RuleName: "No HTTPS", Description: "Site does not use secure connection", ScoreImpact: 10,
-		})
-		return
-	}
-
-	// Добавляем проверку валидности
-	if !sslInfo.Valid {
-		report.RiskScore += 25
-		report.ThreatDetection.HeuristicRules = append(report.ThreatDetection.HeuristicRules, domain.RuleMatch{
-			RuleName: "Invalid SSL", Description: "SSL Certificate is expired or invalid", ScoreImpact: 25,
-		})
-	}
-
-	if sslInfo.AgeDays < 1 {
-		report.RiskScore += 50
-		report.ThreatDetection.HeuristicRules = append(report.ThreatDetection.HeuristicRules, domain.RuleMatch{
-			RuleName: "New SSL Certificate", Description: "Certificate was created today (< 24h)", ScoreImpact: 50,
-		})
-	} else if sslInfo.AgeDays < 7 {
-		report.RiskScore += 20
-		report.ThreatDetection.HeuristicRules = append(report.ThreatDetection.HeuristicRules, domain.RuleMatch{
-			RuleName: "Fresh SSL Certificate", Description: "Certificate is less than 1 week old", ScoreImpact: 20,
-		})
-	}
-
-	isFreeCert := strings.Contains(sslInfo.Issuer, "Let's Encrypt") || strings.Contains(sslInfo.Issuer, "ZeroSSL")
-	if isFreeCert && sslInfo.AgeDays < 14 {
-		report.RiskScore += 10
-		report.ThreatDetection.HeuristicRules = append(report.ThreatDetection.HeuristicRules, domain.RuleMatch{
-			RuleName: "Free SSL on New Site", Description: "Short-lived free certificate on a new site", ScoreImpact: 10,
-		})
-	}
-}
-
-// checkGeoAndASN теперь достает и Город, и Провайдера
-func (s *CheckerService) checkGeoAndASN(ip string) domain.GeoInfo {
-	info := domain.GeoInfo{IP: ip, ISP: "Unknown"}
+func (s *CheckerService) getGeoInfo(ip string) *domain.GeoLocation {
+	geo := &domain.GeoLocation{ISP: "Unknown"}
 	parsedIP := net.ParseIP(ip)
 
-	// 1. Город
 	if s.geoCityDB != nil {
 		if record, err := s.geoCityDB.City(parsedIP); err == nil {
 			if len(record.Country.Names) > 0 {
-				info.Country = record.Country.Names["en"]
+				geo.Country = record.Country.Names["en"]
 			}
 			if len(record.City.Names) > 0 {
-				info.City = record.City.Names["en"]
+				geo.City = record.City.Names["en"]
 			}
 		}
 	}
-
-	// 2. ASN (Провайдер)
 	if s.geoAsnDB != nil {
 		if record, err := s.geoAsnDB.ASN(parsedIP); err == nil {
-			// AutonomousSystemOrganization - это название компании (напр. "Google LLC", "DigitalOcean, LLC")
-			info.ISP = record.AutonomousSystemOrganization
+			geo.ISP = record.AutonomousSystemOrganization
 		}
 	}
-
-	return info
+	return geo
 }
 
-// evaluateHosting проверяет, не используется ли дешевый хостинг для фишинга
-func (s *CheckerService) evaluateHosting(geo domain.GeoInfo, report *domain.FullReport) {
-	if geo.ISP == "" || geo.ISP == "Unknown" {
+func (s *CheckerService) evaluateHosting(geo *domain.GeoLocation, report *domain.FullReport) {
+	if geo == nil || geo.ISP == "Unknown" {
 		return
 	}
 
-	// Список популярных облачных хостингов, которые любят фишеры
-	// Само по себе использование Cloudflare или DO - это нормально.
-	// Но если RiskScore уже высокий (есть подозрительные слова), то это усугубляет вину.
-	suspiciousCloudProviders := []string{
-		"DigitalOcean",
-		"Hetzner",
-		"OVH",
-		"Choopa", // Vultr
-		"Namecheap",
-		"Hostinger",
-		"Amazon.com", // AWS часто используют, но банки там редко хостят основной домен
-		"Google LLC", // Google Cloud
-	}
-
+	suspiciousProviders := []string{"DigitalOcean", "Hetzner", "OVH", "Namecheap", "Hostinger", "Google LLC", "Amazon.com"}
 	isCloud := false
-	for _, provider := range suspiciousCloudProviders {
-		if strings.Contains(geo.ISP, provider) {
+	for _, p := range suspiciousProviders {
+		if strings.Contains(geo.ISP, p) {
 			isCloud = true
 			break
 		}
 	}
 
-	// ЛОГИКА:
-	// Если мы уже нашли подозрительные слова (например "sber", "secure")
-	// И при этом сайт хостится на DigitalOcean (а не в AS Сбербанка)
-	// То это почти гарантированный скам.
-	hasSuspiciousKeywords := false
-	for _, rule := range report.ThreatDetection.HeuristicRules {
-		if rule.RuleName == "Suspicious Keyword in Domain" {
-			hasSuspiciousKeywords = true
-			break
+	// Проверяем, были ли подозрительные слова
+	hasKeywords := false
+	if report.Threats != nil {
+		for _, rule := range report.Threats.Heuristics {
+			if strings.Contains(rule.Name, "Keyword") {
+				hasKeywords = true
+				break
+			}
 		}
 	}
 
-	if isCloud && hasSuspiciousKeywords {
+	if isCloud && hasKeywords {
 		report.RiskScore += 20
-		report.ThreatDetection.HeuristicRules = append(report.ThreatDetection.HeuristicRules, domain.RuleMatch{
-			RuleName:    "Suspicious Hosting",
-			Description: fmt.Sprintf("Banking/Security keyword found, but hosted on cloud provider: %s", geo.ISP),
-			ScoreImpact: 20,
+		report.Threats.Heuristics = append(report.Threats.Heuristics, domain.RuleMatch{
+			Name: "Suspicious Hosting", Desc: fmt.Sprintf("Bank keyword on cloud: %s", geo.ISP), Score: 20,
 		})
 	}
 }
 
-func (s *CheckerService) checkSSL(domainName string) domain.SSLInfo {
-	info := domain.SSLInfo{Valid: false, IsHTTPS: false}
+func (s *CheckerService) getSSLDetails(domainName string) *domain.SSLInfo {
+	info := &domain.SSLInfo{Valid: false, IsHTTPS: false}
 	dialer := &net.Dialer{Timeout: 3 * time.Second}
-
 	conn, err := tls.DialWithDialer(dialer, "tcp", domainName+":443", &tls.Config{InsecureSkipVerify: true})
 	if err != nil {
 		return info
-	}
+	} // Вернет IsHTTPS: false
 	defer conn.Close()
 
 	info.IsHTTPS = true
@@ -308,12 +251,36 @@ func (s *CheckerService) checkSSL(domainName string) domain.SSLInfo {
 	return info
 }
 
-func (s *CheckerService) calculateVerdict(RiskScore int) string {
-	if RiskScore < 20 {
+func (s *CheckerService) evaluateSSL(ssl *domain.SSLInfo, report *domain.FullReport) {
+	if !ssl.IsHTTPS {
+		report.RiskScore += 10
+		report.Threats.Heuristics = append(report.Threats.Heuristics, domain.RuleMatch{
+			Name: "No HTTPS", Desc: "No secure connection", Score: 10,
+		})
+		return
+	}
+	if !ssl.Valid {
+		report.RiskScore += 25
+		report.Threats.Heuristics = append(report.Threats.Heuristics, domain.RuleMatch{
+			Name: "Invalid SSL", Desc: "Expired or invalid", Score: 25,
+		})
+	}
+	if ssl.AgeDays < 1 {
+		report.RiskScore += 50
+		report.Threats.Heuristics = append(report.Threats.Heuristics, domain.RuleMatch{
+			Name: "New SSL", Desc: "Created today", Score: 50,
+		})
+	}
+}
+
+func (s *CheckerService) calculateVerdict(score int) string {
+	if score < 20 {
 		return "Safe"
-	} else if RiskScore < 60 {
+	}
+	if score < 60 {
 		return "Suspicious"
-	} else if RiskScore < 80 {
+	}
+	if score < 80 {
 		return "Malicious"
 	}
 	return "Dangerous"

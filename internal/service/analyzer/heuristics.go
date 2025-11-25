@@ -51,18 +51,18 @@ func AnalyzeString(rawURL string) (int, []domain.RuleMatch) {
 		if strings.Contains(hostname, word) {
 			score += impact
 			rules = append(rules, domain.RuleMatch{
-				RuleName:    "Suspicious Keyword in Domain",
-				Description: "Domain contains keyword: " + word,
-				ScoreImpact: impact,
+				Name:  "Suspicious Keyword in Domain",
+				Desc:  "Domain contains keyword: " + word,
+				Score: impact,
 			})
 		} else if strings.Contains(path, word) {
 			// В пути вес меньше (например example.com/login - это может быть норм)
 			pathImpact := impact / 2
 			score += pathImpact
 			rules = append(rules, domain.RuleMatch{
-				RuleName:    "Suspicious Keyword in Path",
-				Description: "URL path contains keyword: " + word,
-				ScoreImpact: pathImpact,
+				Name:  "Suspicious Keyword in Path",
+				Desc:  "URL path contains keyword: " + word,
+				Score: pathImpact,
 			})
 		}
 	}
@@ -73,9 +73,9 @@ func AnalyzeString(rawURL string) (int, []domain.RuleMatch) {
 		impact := 15
 		score += impact
 		rules = append(rules, domain.RuleMatch{
-			RuleName:    "Long Domain Name",
-			Description: "Domain length is greater than 30 characters",
-			ScoreImpact: impact,
+			Name:  "Long Domain Name",
+			Desc:  "Domain length is greater than 30 characters",
+			Score: impact,
 		})
 	}
 
@@ -89,9 +89,9 @@ func AnalyzeString(rawURL string) (int, []domain.RuleMatch) {
 		} // Лимит
 		score += impact
 		rules = append(rules, domain.RuleMatch{
-			RuleName:    "Multiple Hyphens",
-			Description: "Domain contains multiple hyphens",
-			ScoreImpact: impact,
+			Name:  "Multiple Hyphens",
+			Desc:  "Domain contains multiple hyphens",
+			Score: impact,
 		})
 	}
 
@@ -107,9 +107,9 @@ func AnalyzeString(rawURL string) (int, []domain.RuleMatch) {
 		impact := 15
 		score += impact
 		rules = append(rules, domain.RuleMatch{
-			RuleName:    "Numeric Characters",
-			Description: "Domain contains many numeric characters",
-			ScoreImpact: impact,
+			Name:  "Numeric Characters",
+			Desc:  "Domain contains many numeric characters",
+			Score: impact,
 		})
 	}
 
@@ -119,9 +119,9 @@ func AnalyzeString(rawURL string) (int, []domain.RuleMatch) {
 		impact := 25
 		score += impact
 		rules = append(rules, domain.RuleMatch{
-			RuleName:    "IP Address Hostname",
-			Description: "URL uses IP address instead of domain name",
-			ScoreImpact: impact,
+			Name:  "IP Address Hostname",
+			Desc:  "URL uses IP address instead of domain name",
+			Score: impact,
 		})
 	}
 
@@ -133,9 +133,9 @@ func AnalyzeString(rawURL string) (int, []domain.RuleMatch) {
 			impact := 10
 			score += impact
 			rules = append(rules, domain.RuleMatch{
-				RuleName:    "Suspicious TLD",
-				Description: "Domain uses suspicious TLD: " + tld,
-				ScoreImpact: impact,
+				Name:  "Suspicious TLD",
+				Desc:  "Domain uses suspicious TLD: " + tld,
+				Score: impact,
 			})
 			break
 		}
@@ -147,9 +147,9 @@ func AnalyzeString(rawURL string) (int, []domain.RuleMatch) {
 		impact := 50
 		score += impact
 		rules = append(rules, domain.RuleMatch{
-			RuleName:    "Obfuscated URL (@ symbol)",
-			Description: "URL contains @ symbol, possibly to trick user",
-			ScoreImpact: impact,
+			Name:  "Obfuscated URL (@ symbol)",
+			Desc:  "URL contains @ symbol, possibly to trick user",
+			Score: impact,
 		})
 	}
 
@@ -160,9 +160,9 @@ func AnalyzeString(rawURL string) (int, []domain.RuleMatch) {
 		impact := 15
 		score += impact
 		rules = append(rules, domain.RuleMatch{
-			RuleName:    "Many Subdomains",
-			Description: "Domain has deep subdomain structure",
-			ScoreImpact: impact,
+			Name:  "Many Subdomains",
+			Desc:  "Domain has deep subdomain structure",
+			Score: impact,
 		})
 	}
 

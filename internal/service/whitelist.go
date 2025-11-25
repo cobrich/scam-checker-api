@@ -4,7 +4,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/cobrich/scam-checker-api/pkg/utils"
+	"github.com/cobrich/scam-checker-api/internal/pkg/utils"
 )
 
 type WhitelistService struct {

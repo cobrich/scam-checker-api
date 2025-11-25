@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  api:
+    build: .
+    container_name: scam-checker-api
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy  # <--- ВАЖНО: Ждем, пока БД станет "здоровой"
+    environment:
+      # Используем имя контейнера (scam-checker-db) вместо сервиса (db)
+      - DATABASE_URL=postgres://user:password@scam-checker-db:5432/scam_db
+      - APP_PORT=:8080
+    restart: always
+
+  db:
+    image: postgres:15-alpine
+    container_name: scam-checker-db
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: scam_db
+    ports:
+      - "5445:5432" # Сменил внешний порт на 5445, чтобы не конфликтовать с локальным Postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    # Добавляем проверку здоровья
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d scam_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
