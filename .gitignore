@@ -1,0 +1,6 @@
+.vscode
+.env
+docs
+**/GeoLite2-ASN.mmdb
+**/GeoLite2-City.mmdb
+*.mmdb
