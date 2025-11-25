@@ -228,7 +228,7 @@ func (s *CheckerService) checkGeoAndASN(ip string) domain.GeoInfo {
 
 // evaluateHosting проверяет, не используется ли дешевый хостинг для фишинга
 func (s *CheckerService) evaluateHosting(geo domain.GeoInfo, report *domain.FullReport) {
-	if geo.ISP == "" {
+	if geo.ISP == "" || geo.ISP == "Unknown" {
 		return
 	}
 
