@@ -8,7 +8,7 @@ type FullReport struct {
 	Reason    string `json:"reason,omitempty"`
 
 	// 1. Факты из баз данных (Точное совпадение)
-	Blacklists *BlacklistInfo `json:"blacklists,omitempty"`
+	Blacklists []BlacklistInfo `json:"blacklists,omitempty"`
 
 	// 2. Анализ поведения и текста (Подозрения)
 	Heuristics []RuleMatch `json:"heuristics,omitempty"`
@@ -20,6 +20,7 @@ type FullReport struct {
 type BlacklistInfo struct {
 	Source     string `json:"source"`
 	ExternalID string `json:"ext_id"`
+	Type       string `json:"type"`
 	FirstSeen  string `json:"first_seen"`
 }
 

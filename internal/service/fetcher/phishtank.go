@@ -1,16 +1,17 @@
 package fetcher
 
 import (
+	"compress/gzip" // <--- ВАЖНО
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/cobrich/scam-checker-api/internal/domain"
-	"github.com/cobrich/scam-checker-api/internal/repository" // Импортируем, чтобы использовать структуру репозитория
-	"github.com/gofiber/fiber/v2/log"
+	"github.com/cobrich/scam-checker-api/internal/repository"
 )
 
 type PhishTankService struct {
@@ -21,99 +22,99 @@ func NewPhishTankService(repo *repository.ThreatRepository) *PhishTankService {
 	return &PhishTankService{repo: repo}
 }
 
-// Структура JSON от PhishTank
 type phishTankEntry struct {
 	PhishID int    `json:"phish_id"`
 	URL     string `json:"url"`
 }
 
 func (s *PhishTankService) Run(ctx context.Context) error {
-	url := "http://data.phishtank.com/data/online-valid.json"
+	url := "https://data.phishtank.com/data/online-valid.json"
 	fmt.Println("Запуск обновления PhishTank...")
 
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := &http.Client{Timeout: 120 * time.Second} // Увеличим таймаут, файл большой
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("User-Agent", "scam-checker-bot/1.0")
+	// Явно просим сжатие (хороший тон)
+	req.Header.Set("Accept-Encoding", "gzip")
 
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Info("PhishTankService: ", err)
 		return err
 	}
 	defer resp.Body.Close()
 
-	// Потоковый декодер
-	decoder := json.NewDecoder(resp.Body)
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("PhishTank server error: %d", resp.StatusCode)
+	}
+
+	// --- МАГИЯ GZIP ---
+	var reader io.ReadCloser
+	// Проверяем, сжал ли сервер ответ
+	if resp.Header.Get("Content-Encoding") == "gzip" {
+		gz, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			return fmt.Errorf("gzip error: %v", err)
+		}
+		defer gz.Close()
+		reader = gz
+	} else {
+		reader = resp.Body
+	}
+	// ------------------
+
+	decoder := json.NewDecoder(reader)
 
 	// Читаем открывающую скобку '['
 	if _, err := decoder.Token(); err != nil {
-		return err
+		return fmt.Errorf("invalid json start: %v", err)
 	}
 
 	var (
-		totalRead     int64 = 0 // Сколько прочитали из JSON
-		totalInserted int64 = 0 // Сколько реально попало в БД (новых)
-		totalSkipped  int64 = 0 // Дубликаты
+		totalRead     int64 = 0
+		totalInserted int64 = 0
 	)
 
 	batchSize := 1000
 	batch := make([]domain.Threat, 0, batchSize)
 
-	fmt.Println("Начинаю импорт...")
-	startTime := time.Now()
+	fmt.Println("PhishTank: Начинаю потоковый парсинг...")
 
 	for decoder.More() {
 		var item phishTankEntry
 		if err := decoder.Decode(&item); err != nil {
-			fmt.Printf("Ошибка парсинга строки: %v\n", err)
+			// Если одна строка битая, не падаем, идем дальше
 			continue
 		}
 
 		totalRead++
 
-		// Мапим JSON на нашу доменную модель
 		threat := domain.Threat{
 			URL:        item.URL,
 			Source:     "phishtank",
 			ExternalID: strconv.Itoa(item.PhishID),
+			Type:       "phishing",
 		}
 		batch = append(batch, threat)
 
-		// Если буфер полон — сохраняем в БД
 		if len(batch) >= batchSize {
 			inserted, err := s.repo.SaveBatch(ctx, batch)
 			if err != nil {
-				fmt.Printf("КРИТИЧЕСКАЯ ОШИБКА сохранения: %v\n", err)
+				fmt.Printf("PhishTank DB Error: %v\n", err)
 			}
 			totalInserted += inserted
-			totalSkipped += (int64(len(batch)) - inserted)
+			batch = batch[:0]
 
-			batch = batch[:0] // Очищаем слайс (но сохраняем емкость)
-
-			if totalRead%10000 == 0 {
-				fmt.Printf("Прогресс: Прочитано %d | Новых %d | Дубли %d\n", totalRead, totalInserted, totalSkipped)
+			if totalRead%5000 == 0 {
+				fmt.Printf("PhishTank: Прочитано %d...\n", totalRead)
 			}
 		}
 	}
 
-	// Сохраняем остатки
 	if len(batch) > 0 {
-		inserted, err := s.repo.SaveBatch(ctx, batch)
-		if err == nil {
-			totalInserted += inserted
-			totalSkipped += (int64(len(batch)) - inserted)
-		}
+		inserted, _ := s.repo.SaveBatch(ctx, batch)
+		totalInserted += inserted
 	}
-	duration := time.Since(startTime)
 
-	// ФИНАЛЬНЫЙ ОТЧЕТ
-	fmt.Println("==========================================")
-	fmt.Println("ИМПОРТ ЗАВЕРШЕН")
-	fmt.Printf("Время выполнения: %v\n", duration)
-	fmt.Printf("Всего в JSON файле:  %d\n", totalRead)
-	fmt.Printf("Добавлено в базу:    %d (Новые угрозы)\n", totalInserted)
-	fmt.Printf("Пропущено:           %d (Уже были в базе)\n", totalSkipped)
-	fmt.Println("==========================================")
-
+	fmt.Printf("=== PhishTank ЗАВЕРШЕН: %d строк, %d новых ===\n", totalRead, totalInserted)
 	return nil
 }

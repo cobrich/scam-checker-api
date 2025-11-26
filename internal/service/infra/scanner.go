@@ -11,6 +11,26 @@ import (
 	"github.com/oschwald/geoip2-golang"
 )
 
+var riskyCountries = map[string]int{
+	"Russia":      15,
+	"China":       20,
+	"Iran":        30,
+	"North Korea": 50,
+	"Brazil":      10,
+	"Netherlands": 10,
+	"Turkey":      10,
+}
+
+var bulletproofHosts = []string{
+	"FlokiNET", "Shinjiru", "AbeloHost", "Offshore", "AnonymousSpeech",
+	"Njalla", "Privex", "OrangeWebsite",
+}
+
+var cloudProviders = []string{
+	"DigitalOcean", "Hetzner", "OVH", "Namecheap", "Hostinger",
+	"Choopa", "Vultr", "Google LLC", "Amazon.com",
+}
+
 type InfraService struct {
 	geoCity *geoip2.Reader
 	geoASN  *geoip2.Reader
@@ -28,7 +48,9 @@ func (s *InfraService) Scan(ctx context.Context, domainName string) (*domain.Geo
 
 	// 1. DNS Resolve
 	// Используем LookupIP, чтобы проверить, жив ли сайт
+	start := time.Now()
 	ips, err := net.LookupIP(domainName)
+	resolveTime := time.Since(start)
 	if err != nil || len(ips) == 0 {
 		return info, rules, score // Сайт мертв
 	}
@@ -37,8 +59,18 @@ func (s *InfraService) Scan(ctx context.Context, domainName string) (*domain.Geo
 	info.Status = "Online"
 	info.IP = ips[0].String()
 
+	if resolveTime > 500*time.Millisecond {
+		rules = append(rules, domain.RuleMatch{Name: "Slow DNS", Desc: "Resolve time > 500ms", Score: 5})
+	}
+
 	// 2. GeoIP & Hosting
 	info.Geo = s.getGeoInfo(info.IP)
+
+	// Проверка страны
+	if risk, ok := riskyCountries[info.Geo.Country]; ok {
+		score += risk
+		rules = append(rules, domain.RuleMatch{Name: "Risky Country", Desc: info.Geo.Country, Score: risk})
+	}
 
 	// Проверяем хостинг (возвращает баллы и правила)
 	hScore, hRules := s.analyzeHosting(info.Geo)
@@ -49,14 +81,21 @@ func (s *InfraService) Scan(ctx context.Context, domainName string) (*domain.Geo
 	info.SSL = s.getSSLDetails(domainName)
 
 	// Анализируем SSL (возвращает баллы и правила)
-	sslScore, sslRules := s.analyzeSSL(info.SSL)
-	score += sslScore
-	rules = append(rules, sslRules...)
+
+	if info.SSL != nil { // <--- ПРОВЕРКА НА NIL
+		sslScore, sslRules := s.analyzeSSL(info.SSL)
+		score += sslScore
+		rules = append(rules, sslRules...)
+	} else {
+		// Если SSL нет, но сайт жив (HTTP), можно добавить штраф
+		score += 10
+		rules = append(rules, domain.RuleMatch{Name: "No HTTPS", Desc: "No secure connection", Score: 10})
+	}
 
 	// 4. DNS Details (MX)
 	info.DNS = s.getDNSDetails(domainName)
 
-	if len(info.DNS.MXRecords) == 0 {
+	if info.DNS == nil || len(info.DNS.MXRecords) == 0 {
 		score += 15
 		rules = append(rules, domain.RuleMatch{Name: "No MX Records", Desc: "Domain cannot receive emails", Score: 15})
 	}
@@ -68,15 +107,22 @@ func (s *InfraService) Scan(ctx context.Context, domainName string) (*domain.Geo
 
 func (s *InfraService) getDNSDetails(domainName string) *domain.DNSDetails {
 	details := &domain.DNSDetails{}
+	found := false
 
 	mxRecords, _ := net.LookupMX(domainName)
 	for _, mx := range mxRecords {
 		details.MXRecords = append(details.MXRecords, mx.Host)
+		found = true
 	}
 
 	nsRecords, _ := net.LookupNS(domainName)
 	for _, ns := range nsRecords {
 		details.NSRecords = append(details.NSRecords, ns.Host)
+		found = true
+	}
+
+	if !found {
+		return nil
 	}
 
 	return details
@@ -113,21 +159,20 @@ func (s *InfraService) analyzeHosting(geo *domain.GeoLocation) (int, []domain.Ru
 		return 0, nil
 	}
 
-	suspiciousProviders := []string{
-		"DigitalOcean", "Hetzner", "OVH", "Namecheap",
-		"Hostinger", "Choopa", "Vultr",
+	// 1. Bulletproof Hosting
+	for _, bp := range bulletproofHosts {
+		if strings.Contains(strings.ToLower(geo.ISP), strings.ToLower(bp)) {
+			score += 40
+			rules = append(rules, domain.RuleMatch{Name: "Bulletproof Hosting", Desc: geo.ISP, Score: 40})
+			return score, rules // Если нашли Bulletproof, дальше не проверяем Cloud
+		}
 	}
 
-	for _, p := range suspiciousProviders {
+	// 2. Cloud Hosting
+	for _, p := range cloudProviders {
 		if strings.Contains(geo.ISP, p) {
-			// Просто за использование облака мы даем небольшой балл.
-			// (В checker.go можно добавить логику: если есть keyword "sber" + Cloud Hosting -> +20 баллов)
 			score += 5
-			rules = append(rules, domain.RuleMatch{
-				Name:  "Cloud Hosting",
-				Desc:  "Hosted on " + geo.ISP,
-				Score: 5,
-			})
+			rules = append(rules, domain.RuleMatch{Name: "Cloud Hosting", Desc: geo.ISP, Score: 5})
 			break
 		}
 	}

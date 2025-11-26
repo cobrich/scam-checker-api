@@ -39,6 +39,12 @@ func (h *Handler) CheckURL(c *fiber.Ctx) error {
 		})
 	}
 
+	// Проверяем формат
+	if c.Query("format") == "apivoid" {
+		apiVoidResp := ConvertToApiVoid(report)
+		return c.JSON(apiVoidResp)
+	}
+
 	// Просто отдаем структуру отчета, Fiber сам превратит её в красивый JSON
 	return c.JSON(report)
 }

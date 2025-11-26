@@ -2,13 +2,17 @@ CREATE TABLE IF NOT EXISTS threats (
     id BIGSERIAL PRIMARY KEY,
     url TEXT NOT NULL,
     url_hash CHAR(64) NOT NULL,
-    source TEXT NOT NULL,
-    external_id TEXT,
+    source TEXT NOT NULL,      -- 'phishtank', 'urlhaus', 'openphish'
+    external_id TEXT,          -- ID в системе источника (если есть)
+    threat_type TEXT,          -- 'phishing', 'malware', 'botnet', 'spam'
     created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Создаем уникальный индекс по хешу для быстрого поиска и защиты от дублей
-CREATE UNIQUE INDEX IF NOT EXISTS threats_url_hash_idx ON threats(url_hash);
+-- Индекс для быстрого поиска по хешу (НЕ уникальный, так как хеш может повторяться для разных источников)
+CREATE INDEX IF NOT EXISTS threats_url_hash_idx ON threats(url_hash);
+
+-- Уникальный индекс: один и тот же URL от одного источника не должен дублироваться
+CREATE UNIQUE INDEX IF NOT EXISTS threats_unique_source_idx ON threats(url_hash, source);
 
 CREATE TABLE IF NOT EXISTS whitelist (
     id SERIAL PRIMARY KEY,

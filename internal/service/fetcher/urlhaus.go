@@ -50,8 +50,6 @@ func (s *UrlHausService) Run(ctx context.Context) error {
 	batchSize := 1000
 	batch := make([]domain.Threat, 0, batchSize)
 
-	startTime := time.Now()
-
 	for {
 		// Читаем строку за строкой
 		record, err := reader.Read()
@@ -106,11 +104,7 @@ func (s *UrlHausService) Run(ctx context.Context) error {
 		totalSkipped += (int64(len(batch)) - inserted)
 	}
 
-	fmt.Println("=== URLhaus ИМПОРТ ЗАВЕРШЕН ===")
-	fmt.Printf("Время: %v\n", time.Since(startTime))
-	fmt.Printf("Всего строк: %d\n", totalRead)
-	fmt.Printf("Новых угроз: %d\n", totalInserted)
-	fmt.Println("===============================")
+	fmt.Printf("=== UrlHaus ЗАВЕРШЕН: %d строк, %d новых ===\n", totalRead, totalInserted)
 
 	return nil
 }

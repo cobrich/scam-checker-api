@@ -11,10 +11,6 @@ import (
 	"github.com/cobrich/scam-checker-api/internal/domain"
 )
 
-// -------------------------
-//    REGEX & CONSTANTS
-// -------------------------
-
 var (
 	ipRegex            = regexp.MustCompile(`^(\d{1,3}\.){3}\d{1,3}$`)
 	unicodeConfusables = regexp.MustCompile(`[^\x00-\x7F]`)
@@ -47,9 +43,11 @@ var suspiciousKeywords = map[string]int{
 	"unlock": 20, "bonus": 15, "giveaway": 20,
 }
 
-// -------------------------
+var urlShorteners = []string{
+	"bit.ly", "t.co", "goo.gl", "tinyurl.com", "is.gd", "cutt.ly", "shorte.st", "clck.ru",
+}
+
 //    PUBLIC FUNCTION
-// -------------------------
 
 func Analyze(rawURL string) ([]domain.RuleMatch, int) {
 	score := 0
@@ -76,25 +74,24 @@ func Analyze(rawURL string) ([]domain.RuleMatch, int) {
 	path := u.Path
 	query := u.RawQuery
 
-	// -----------------------------------------------------
-	// RULE 1: Scheme (HTTP → phishing 90% случаев)
-	// -----------------------------------------------------
+	// Rules
+
+	// 1: Scheme (HTTP → phishing 90% случаев)
+
 	if u.Scheme != "https" {
 		score += 20
 		rules = append(rules, rule("Insecure Protocol", "Non-HTTPS scheme", 20))
 	}
 
-	// -----------------------------------------------------
-	// RULE 2: Unicode / Confusable chars
-	// -----------------------------------------------------
+	// 2: Unicode / Confusable chars
+
 	if unicodeConfusables.MatchString(hostname) {
 		score += 50
 		rules = append(rules, rule("Unicode Spoof", "Domain contains Unicode/confusable letters", 50))
 	}
 
-	// -----------------------------------------------------
-	// RULE 3: Suspicious keywords (Domain & Path)
-	// -----------------------------------------------------
+	// 3: Suspicious keywords (Domain & Path)
+
 	// Проверяем токены домена
 	for _, t := range tokens {
 		if v, ok := suspiciousKeywords[t]; ok {
@@ -111,9 +108,8 @@ func Analyze(rawURL string) ([]domain.RuleMatch, int) {
 		}
 	}
 
-	// -----------------------------------------------------
-	// RULE 4: Brand typosquatting (Levenshtein)
-	// -----------------------------------------------------
+	// 4: Brand typosquatting (Levenshtein)
+
 	for _, token := range tokens {
 		if len(token) < 4 {
 			continue
@@ -132,9 +128,8 @@ func Analyze(rawURL string) ([]domain.RuleMatch, int) {
 		}
 	}
 
-	// -----------------------------------------------------
-	// RULE 5: Brand Injection (google-secure-login.com)
-	// -----------------------------------------------------
+	// 5: Brand Injection (google-secure-login.com)
+
 	for _, brand := range protectedBrands {
 		// Ищем бренд с дефисами
 		if strings.Contains(cleanHost, brand+"-") || strings.Contains(cleanHost, "-"+brand) {
@@ -143,9 +138,8 @@ func Analyze(rawURL string) ([]domain.RuleMatch, int) {
 		}
 	}
 
-	// -----------------------------------------------------
-	// RULE 6: Fake Parent Domain (google.com.verify.net)
-	// -----------------------------------------------------
+	// 6: Fake Parent Domain (google.com.verify.net)
+
 	for _, brand := range protectedBrands {
 		brandDot := brand + "."
 		if strings.Contains(cleanHost, brandDot) {
@@ -164,17 +158,15 @@ func Analyze(rawURL string) ([]domain.RuleMatch, int) {
 		}
 	}
 
-	// -----------------------------------------------------
-	// RULE 7: Punycode
-	// -----------------------------------------------------
+	// 7: Punycode
+
 	if strings.Contains(hostname, "xn--") {
 		score += 40
 		rules = append(rules, rule("Punycode", "IDN punycode detected", 40))
 	}
 
-	// -----------------------------------------------------
-	// RULE 8: High entropy (Random domains & Tokens)
-	// -----------------------------------------------------
+	// 8: High entropy (Random domains & Tokens)
+
 	// Проверяем весь хост
 	if calculateEntropy(cleanHost) > 4.2 {
 		score += 15
@@ -188,9 +180,8 @@ func Analyze(rawURL string) ([]domain.RuleMatch, int) {
 		}
 	}
 
-	// -----------------------------------------------------
-	// RULE 9: Long domain / Oversized Token
-	// -----------------------------------------------------
+	// 9: Long domain / Oversized Token
+
 	if len(cleanHost) > 40 {
 		score += 15
 		rules = append(rules, rule("Long Domain", "Length exceeds 40 chars", 15))
@@ -202,58 +193,51 @@ func Analyze(rawURL string) ([]domain.RuleMatch, int) {
 		}
 	}
 
-	// -----------------------------------------------------
-	// RULE 10: Too many hyphens
-	// -----------------------------------------------------
+	// 10: Too many hyphens
+
 	if strings.Count(cleanHost, "-") >= 3 {
 		score += 15
 		rules = append(rules, rule("Excessive Hyphens", "3+ hyphens", 15))
 	}
 
-	// -----------------------------------------------------
-	// RULE 11: Deep subdomains
-	// -----------------------------------------------------
+	// 11: Deep subdomains
+
 	if strings.Count(hostname, ".") >= 3 && !isIPAddress(hostname) {
 		score += 15
 		rules = append(rules, rule("Deep Subdomain", "3+ levels", 15))
 	}
 
-	// -----------------------------------------------------
-	// RULE 12: IP as hostname
-	// -----------------------------------------------------
+	// 12: IP as hostname
+
 	if isIPAddress(hostname) {
 		score += 25
 		rules = append(rules, rule("IP Hostname", "Direct IP access", 25))
 	}
 
-	// -----------------------------------------------------
-	// RULE 13: Suspicious TLD
-	// -----------------------------------------------------
+	// 13: Suspicious TLD
+
 	tld := getTLD(hostname)
 	if suspiciousTLDs[tld] {
 		score += 15
 		rules = append(rules, rule("Suspicious TLD", "Risky TLD: ."+tld, 15))
 	}
 
-	// -----------------------------------------------------
-	// RULE 14: Userinfo (google.com@evil.site)
-	// -----------------------------------------------------
+	// 14: Userinfo (google.com@evil.site)
+
 	if u.User != nil {
 		score += 40
 		rules = append(rules, rule("Userinfo Abuse", "URL contains userinfo", 40))
 	}
 
-	// -----------------------------------------------------
-	// RULE 15: Unusual port
-	// -----------------------------------------------------
+	// 15: Unusual port
+
 	if u.Port() != "" && u.Port() != "80" && u.Port() != "443" {
 		score += 20
 		rules = append(rules, rule("Suspicious Port", "Port: "+u.Port(), 20))
 	}
 
-	// -----------------------------------------------------
-	// RULE 16: Base64 / Hex payload in path
-	// -----------------------------------------------------
+	// 16: Base64 / Hex payload in path
+
 	pathTrim := strings.Trim(path, "/")
 	if base64Like.MatchString(pathTrim) {
 		// Декодируем и проверяем, текст ли это
@@ -269,9 +253,8 @@ func Analyze(rawURL string) ([]domain.RuleMatch, int) {
 		rules = append(rules, rule("Hex Payload", "Hex-like path", 20))
 	}
 
-	// -----------------------------------------------------
-	// RULE 17: Open redirect patterns
-	// -----------------------------------------------------
+	// 17: Open redirect patterns / tokens
+
 	if strings.Contains(query, "redirect=") ||
 		strings.Contains(query, "next=") ||
 		strings.Contains(query, "url=") ||
@@ -279,13 +262,34 @@ func Analyze(rawURL string) ([]domain.RuleMatch, int) {
 		score += 25
 		rules = append(rules, rule("Open Redirect", "Redirect parameter detected", 25))
 	}
+	if strings.Contains(query, "token=") || strings.Contains(query, "session=") || strings.Contains(query, "aff_id=") {
+		score += 15
+		rules = append(rules, rule("Sensitive Query Parameter", "Potential session hijacking", 15))
+	}
 
-	// -----------------------------------------------------
-	// RULE 18: Obfuscated URL (@ symbol in path/query)
-	// -----------------------------------------------------
+	// 18: Obfuscated URL (@ symbol in path/query)
 	if strings.Contains(rawURL, "@") && u.User == nil {
 		score += 20
 		rules = append(rules, rule("Obfuscated URL", "Contains @ symbol", 20))
+	}
+
+	// 19. URL Shortener
+	for _, s := range urlShorteners {
+		if cleanHost == s {
+			score += 25
+			rules = append(rules, rule("URL Shortener", "Short URL detected", 25))
+			break
+		}
+	}
+
+	// 20. IPFS / Workers
+	if strings.Contains(rawURL, "ipfs://") || strings.Contains(hostname, "ipfs") {
+		score += 35
+		rules = append(rules, rule("IPFS Hosting", "Potential scam via decentralized storage", 35))
+	}
+	if strings.HasSuffix(hostname, ".workers.dev") || strings.HasSuffix(hostname, ".pages.dev") {
+		score += 25
+		rules = append(rules, rule("Cloudflare Worker", "Potential abuse of CF Workers", 25))
 	}
 
 	// Cap score at 100
@@ -296,9 +300,7 @@ func Analyze(rawURL string) ([]domain.RuleMatch, int) {
 	return rules, score
 }
 
-// -------------------------
 //    HELPERS
-// -------------------------
 
 func rule(name, desc string, score int) domain.RuleMatch {
 	return domain.RuleMatch{Name: name, Desc: desc, Score: score}

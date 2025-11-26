@@ -41,16 +41,20 @@ func (s *CheckerService) Analyze(ctx context.Context, rawURL string, fullScan bo
 	}
 
 	// 2. Database check
-	threat, err := s.repo.GetThreatByHash(ctx, utils.HashURL(rawURL))
-	if err == nil && threat != nil {
+	threats, err := s.repo.GetThreatByHash(ctx, utils.HashURL(rawURL))
+	if err == nil && len(threats) > 0 {
 		report.RiskScore = 100
 		report.Verdict = "Dangerous"
 		report.Reason = "Found in Blacklist"
 
-		report.Blacklists = &domain.BlacklistInfo{
-			Source:     threat.Source,
-			ExternalID: threat.ExternalID,
-			FirstSeen:  threat.CreatedAt.Format("2006-01-02"),
+		// Проходим по всем найденным записям
+		for _, t := range threats {
+			report.Blacklists = append(report.Blacklists, domain.BlacklistInfo{
+				Source:     t.Source,
+				ExternalID: t.ExternalID,
+				Type:       t.Type,
+				FirstSeen:  t.CreatedAt.Format("2006-01-02"),
+			})
 		}
 
 		if !fullScan {

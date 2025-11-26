@@ -9,7 +9,7 @@ import (
 	"github.com/cobrich/scam-checker-api/config"
 	"github.com/cobrich/scam-checker-api/internal/repository"
 	"github.com/cobrich/scam-checker-api/internal/service"
-	// "github.com/cobrich/scam-checker-api/internal/service/fetcher"
+	"github.com/cobrich/scam-checker-api/internal/service/fetcher"
 	"github.com/cobrich/scam-checker-api/internal/service/infra"
 	"github.com/cobrich/scam-checker-api/internal/transport/rest"
 	"github.com/gofiber/fiber/v2"
@@ -71,30 +71,45 @@ func main() {
 	threatRepo := repository.NewThreatRepository(dbPool)
 
 	// Fetching Urls from API's
-	// phishService := fetcher.NewPhishTankService(threatRepo)
-	// urlHausService := fetcher.NewUrlHausService(threatRepo)
+	phishService := fetcher.NewPhishTankService(threatRepo)
+	urlHausService := fetcher.NewUrlHausService(threatRepo)
+	openphishService := fetcher.NewOpenPhishService(threatRepo)
+	threatfoxService := fetcher.NewThreatFoxService(threatRepo)
 
 	// Ligitimate Urls
 	whitelistService := service.NewWhitelistService(ctx, threatRepo)
 
-	// Network Rules 
+	// Network Rules
 	infraService := infra.NewInfraService(cityDB, asnDB)
 
 	// The orchestrator
 	checkerService := service.NewCheckerService(threatRepo, whitelistService, infraService)
 
 	// Запуск Фетчеров (в отдельной горутине или просто для теста)
-	// go func() {
-	// 	if err := phishService.Run(ctx); err != nil {
-	// 		log.Printf("Ошибка фетчера: %v", err)
-	// 	}
-	// }()
+	if false {
+		go func() {
+			if err := phishService.Run(ctx); err != nil {
+				log.Printf("Ошибка фетчера: %v", err)
+			}
+		}()
 
-	// go func() {
-	// 	if err := urlHausService.Run(ctx); err != nil {
-	// 		log.Printf("Ошибка фетчера: %v", err)
-	// 	}
-	// }()
+		go func() {
+			if err := urlHausService.Run(ctx); err != nil {
+				log.Printf("Ошибка фетчера: %v", err)
+			}
+		}()
+		go func() {
+			if err := openphishService.Run(ctx); err != nil {
+				log.Printf("Ошибка фетчера: %v", err)
+			}
+		}()
+
+		go func() {
+			if err := threatfoxService.Run(ctx); err != nil {
+				log.Printf("Ошибка фетчера: %v", err)
+			}
+		}()
+	}
 
 	app := fiber.New()
 
