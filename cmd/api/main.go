@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"log"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -17,86 +16,90 @@ import (
 	"github.com/cobrich/scam-checker-api/internal/service/infra"
 	"github.com/cobrich/scam-checker-api/internal/transport/rest"
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/limiter"
-	"github.com/oschwald/geoip2-golang"
-
+	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/oschwald/geoip2-golang"
 )
 
 func main() {
+	// 1. Инициализация логгера
 	logger.Setup()
 	slog.Info("Starting Scam Checker API...")
 
-	// Загрузка конфига
+	// 2. Конфиг
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		log.Fatalf("Ошибка конфига: %v", err)
+		slog.Error("Ошибка загрузки конфига", "error", err)
+		os.Exit(1)
 	}
 
-	// Подключение к БД с повторными попытками (Retry Loop)
+	// 3. Подключение к БД (Retry Loop)
 	ctx := context.Background()
 	var dbPool *pgxpool.Pool
 
-	// Пробуем подключиться 10 раз с паузой 2 секунды
 	for i := 0; i < 10; i++ {
 		dbPool, err = pgxpool.New(ctx, cfg.PostgresURL)
 		if err == nil {
-			// Если создали пул, проверяем пинг
 			if err = dbPool.Ping(ctx); err == nil {
-				break // Успех! Выходим из цикла
+				break
 			}
 		}
-
-		slog.Info("Попытка подключения к БД (%d/10) неудачна: %v. Ждем 2 сек...",
-			"", i+1,
-			"error", err,
-		)
+		slog.Info("Попытка подключения к БД...", "attempt", i+1, "error", err)
 		time.Sleep(2 * time.Second)
 	}
 
 	if err != nil {
-		log.Fatalf("Не удалось подключиться к БД после всех попыток: %v", err)
+		slog.Error("Не удалось подключиться к БД", "error", err)
+		os.Exit(1)
 	}
 	defer dbPool.Close()
-
-	// Инициализируем City базу
-	cityDB, err := geoip2.Open("GeoLite2-City.mmdb")
-	if err != nil {
-		slog.Error("⚠️ Warning: GeoLite2-City.mmdb not found. GeoIP features disabled.")
-	}
-
-	// Инициализируем ASN базу
-	asnDB, err := geoip2.Open("GeoLite2-ASN.mmdb")
-	if err != nil {
-		slog.Error("⚠️ Warning: GeoLite2-ASN.mmdb not found. Hosting analysis disabled.")
-	}
-	defer func() {
-		cityDB.Close()
-		asnDB.Close()
-	}()
-
 	slog.Info("Успешное подключение к Postgres!")
 
-	// Dangerous Urls
+	// 4. GeoIP (Безопасная инициализация)
+	var cityDB, asnDB *geoip2.Reader
+
+	if db, err := geoip2.Open("GeoLite2-City.mmdb"); err != nil {
+		slog.Warn("GeoLite2-City.mmdb not found. GeoIP features disabled.")
+	} else {
+		cityDB = db
+	}
+
+	if db, err := geoip2.Open("GeoLite2-ASN.mmdb"); err != nil {
+		slog.Warn("GeoLite2-ASN.mmdb not found. Hosting analysis disabled.")
+	} else {
+		asnDB = db
+	}
+
+	// Безопасное закрытие (проверка на nil)
+	defer func() {
+		if cityDB != nil {
+			cityDB.Close()
+		}
+		if asnDB != nil {
+			asnDB.Close()
+		}
+	}()
+
+	// 5. Инициализация слоев
 	threatRepo := repository.NewThreatRepository(dbPool)
 
-	// Fetching Urls from API's
-	phishService := fetcher.NewPhishTankService(threatRepo)
-	urlHausService := fetcher.NewUrlHausService(threatRepo)
-	openphishService := fetcher.NewOpenPhishService(threatRepo)
-	threatfoxService := fetcher.NewThreatFoxService(threatRepo)
-
-	// Ligitimate Urls
+	// Сервисы
 	whitelistService := service.NewWhitelistService(ctx, threatRepo)
-
-	// Network Rules
 	infraService := infra.NewInfraService(cityDB, asnDB)
-
-	// The orchestrator
 	checkerService := service.NewCheckerService(threatRepo, whitelistService, infraService)
 
-	// Запуск Фетчеров (в отдельной горутине или просто для теста)
-	if false {
+	// 6. Запуск Фетчеров
+	shouldRunFetchers := cfg.EnableFetchers == "true"
+
+	if shouldRunFetchers {
+		slog.Info("Запуск фоновых обновлений баз...")
+		phishService := fetcher.NewPhishTankService(threatRepo)
+		urlHausService := fetcher.NewUrlHausService(threatRepo)
+		openphishService := fetcher.NewOpenPhishService(threatRepo)
+		threatfoxService := fetcher.NewThreatFoxService(threatRepo)
+
 		go func() {
 			if err := phishService.Run(ctx); err != nil {
 				slog.Info("Ошибка фетчера: %v",
@@ -104,7 +107,6 @@ func main() {
 				)
 			}
 		}()
-
 		go func() {
 			if err := urlHausService.Run(ctx); err != nil {
 				slog.Info("Ошибка фетчера: %v",
@@ -119,7 +121,6 @@ func main() {
 				)
 			}
 		}()
-
 		go func() {
 			if err := threatfoxService.Run(ctx); err != nil {
 				slog.Info("Ошибка фетчера: %v",
@@ -129,17 +130,22 @@ func main() {
 		}()
 	}
 
-	app := fiber.New()
+	// 7. Настройка Web Server
+	app := fiber.New(fiber.Config{
+		// Отключаем заголовок Server: Fiber (безопасность через неясность)
+		DisableStartupMessage: true,
+	})
 
+	// Middlewares
+	app.Use(recover.New()) // Восстановление после паники
+	app.Use(cors.New())    // Разрешаем запросы с браузера
+
+	// Custom Logger Middleware
 	app.Use(func(c *fiber.Ctx) error {
 		start := time.Now()
-
-		// Обрабатываем запрос
 		err := c.Next()
-
 		duration := time.Since(start)
 
-		// Собираем атрибуты для лога
 		attrs := []any{
 			slog.String("method", c.Method()),
 			slog.String("path", c.Path()),
@@ -147,48 +153,54 @@ func main() {
 			slog.String("ip", c.IP()),
 			slog.String("duration", duration.String()),
 		}
-
-		// Если была ошибка, добавляем её в лог
 		if err != nil {
 			attrs = append(attrs, slog.String("error", err.Error()))
 		}
-
 		slog.Info("http_request", attrs...)
 		return err
 	})
 
-	handler := rest.NewHandler(checkerService)
+	// Rate Limiter
 	app.Use(limiter.New(limiter.Config{
-		Max:        20,
+		Max:        60, // Увеличил до 60 (20 маловато для тестов)
 		Expiration: 1 * time.Minute,
 		KeyGenerator: func(c *fiber.Ctx) string {
-			return c.IP() // Лимит по IP
+			return c.IP()
 		},
 		LimitReached: func(c *fiber.Ctx) error {
-			return c.Status(429).JSON(fiber.Map{
-				"error": "Too many requests. Chill out.",
-			})
+			return c.Status(429).JSON(fiber.Map{"error": "Too many requests"})
 		},
 	}))
+
+	// 8. Роуты
+	// Healthcheck (для Docker/K8s)
+	app.Get("/health", func(c *fiber.Ctx) error {
+		return c.Status(200).JSON(fiber.Map{"status": "ok"})
+	})
+
+	handler := rest.NewHandler(checkerService)
 	handler.RegisterRoutes(app)
 
-	slog.Info("Сервер запущен:",
-		"port", cfg.AppPort,
-	)
-
-	// Запуск сервера в горутине
+	// 9. Запуск и Graceful Shutdown
 	go func() {
+		slog.Info("Сервер запущен", "port", cfg.AppPort)
 		if err := app.Listen(cfg.AppPort); err != nil {
-			log.Panic(err)
+			slog.Error("Ошибка сервера", "error", err)
 		}
 	}()
 
-	// Ждем сигнала выключения (Ctrl+C или Docker stop)
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 
-	<-c // Блокируем, пока не придет сигнал
+	<-c
 	slog.Info("Gracefully shutting down...")
-	_ = app.Shutdown()
+
+	// Даем серверу 5 секунд на завершение текущих запросов
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := app.ShutdownWithContext(shutdownCtx); err != nil {
+		slog.Error("Ошибка при выключении", "error", err)
+	}
 	slog.Info("Server stopped")
 }

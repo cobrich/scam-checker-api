@@ -8,8 +8,9 @@ import (
 )
 
 type Config struct {
-	PostgresURL string
-	AppPort     string
+	PostgresURL    string
+	AppPort        string
+	EnableFetchers string
 }
 
 func LoadConfig() (*Config, error) {
@@ -23,8 +24,9 @@ func LoadConfig() (*Config, error) {
 	}
 
 	cfg := &Config{
-		PostgresURL: os.Getenv("DATABASE_URL"), // postgres://user:pass@localhost:5432/dbname
-		AppPort:     os.Getenv("APP_PORT"),
+		PostgresURL:    os.Getenv("DATABASE_URL"), // postgres://user:pass@localhost:5432/dbname
+		AppPort:        os.Getenv("APP_PORT"),
+		EnableFetchers: os.Getenv("RUN_FETCHERS"),
 	}
 
 	if cfg.AppPort == "" {
