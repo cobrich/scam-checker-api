@@ -85,7 +85,7 @@ func (r *ThreatRepository) ExistsByHash(ctx context.Context, hash string) (bool,
 
 // GetThreatByHash ищет угрозу по хешу и возвращает указатель на структуру Threat.
 // Если угроза не найдена, возвращает nil (и nil ошибку).
-func (r *ThreatRepository) GetThreatByHash(ctx context.Context, hash string) ([]domain.Threat, error) {
+func (r *ThreatRepository) GetThreatsByHash(ctx context.Context, hash string) ([]domain.Threat, error) {
 	// Выбираем все поля, которые нам нужны для отчета
 	query := `
 		SELECT id, url, source, external_id, threat_type, created_at 

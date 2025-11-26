@@ -35,13 +35,11 @@ func (s *CheckerService) Analyze(ctx context.Context, rawURL string, fullScan bo
 	if s.whitelist.IsWhitelisted(rawURL) {
 		report.Verdict = "Safe"
 		report.Reason = "Whitelisted Domain"
-		if !fullScan {
-			return report, nil
-		}
+		return report, nil
 	}
 
 	// 2. Database check
-	threats, err := s.repo.GetThreatByHash(ctx, utils.HashURL(rawURL))
+	threats, err := s.repo.GetThreatsByHash(ctx, utils.HashURL(rawURL))
 	if err == nil && len(threats) > 0 {
 		report.RiskScore = 100
 		report.Verdict = "Dangerous"
@@ -76,7 +74,7 @@ func (s *CheckerService) Analyze(ctx context.Context, rawURL string, fullScan bo
 
 	// 4. Infra (Сетевая проверка)
 	domainName, _ := utils.ExtractHostname(rawURL)
-	if domainName != "" {
+	if fullScan && domainName != "" {
 		// Вызываем сервис infra
 		// infraInfo, infraRules, infraScore := s.infra.Scan(ctx, domainName)
 		infraInfo, infraRules, infraScore := s.infra.Scan(ctx, rawURL)
@@ -97,11 +95,17 @@ func (s *CheckerService) Analyze(ctx context.Context, rawURL string, fullScan bo
 	if report.RiskScore > 100 {
 		report.RiskScore = 100
 	}
-	report.Verdict = calculateVerdict(report.RiskScore)
+	// Если вердикт еще не поставлен (например, риск был низким), вычисляем его
+	if report.Verdict == "" {
+		report.Verdict = calculateVerdict(report.RiskScore)
+	}
 
-	// Если эвристика пустая - nil (чтобы не было "heuristics": [] в JSON)
+	// Чистка JSON (чтобы не было null или пустых массивов)
 	if len(report.Heuristics) == 0 {
 		report.Heuristics = nil
+	}
+	if len(report.Blacklists) == 0 {
+		report.Blacklists = nil
 	}
 
 	return report, nil
