@@ -108,6 +108,20 @@ func ConvertToApiVoid(r *domain.FullReport) ApiVoidResponse {
 		}
 	}
 
+	// Маппинг Content Analysis
+	if r.Infrastructure != nil && r.Infrastructure.HTTP != nil {
+		checks.IsPasswordField = r.Infrastructure.HTTP.HasPasswordField
+		checks.IsCreditCardField = r.Infrastructure.HTTP.HasCreditCard
+
+		// Redirection
+		if len(r.Infrastructure.HTTP.RedirectChain) > 0 {
+			resp.Redirection.Found = true
+			// Простая проверка: если последний URL не совпадает с исходным хостом - внешний
+			// (тут можно усложнить логику)
+			resp.Redirection.External = true
+		}
+	}
+
 	// Heuristics Mapping
 	// Пробегаемся по твоим правилам и включаем флаги APIVoid
 	if r.Heuristics != nil {

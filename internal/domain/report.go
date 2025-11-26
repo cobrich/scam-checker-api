@@ -38,6 +38,8 @@ type GeoNetInfo struct {
 	Geo *GeoLocation `json:"geolocation,omitempty"`
 	SSL *SSLInfo     `json:"ssl,omitempty"`
 	DNS *DNSDetails  `json:"dns,omitempty"`
+
+	HTTP *HTTPDetails `json:"http_scan,omitempty"`
 }
 
 type GeoLocation struct {
@@ -57,4 +59,13 @@ type SSLInfo struct {
 type DNSDetails struct {
 	MXRecords []string `json:"mx_records,omitempty"`
 	NSRecords []string `json:"ns_records,omitempty"`
+}
+
+type HTTPDetails struct {
+	StatusCode       int      `json:"status_code"`
+	Title            string   `json:"page_title"`
+	RedirectChain    []string `json:"redirect_chain,omitempty"` // История редиректов
+	HasPasswordField bool     `json:"has_password_field"`       // Нашли ли поле ввода пароля?
+	HasCreditCard    bool     `json:"has_credit_card_field"`    // Нашли ли поле карты?
+	IsSuspiciousJS   bool     `json:"is_suspicious_js"`         // Обфусцированный JS?
 }

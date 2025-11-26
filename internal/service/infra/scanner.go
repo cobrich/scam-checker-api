@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cobrich/scam-checker-api/internal/domain"
+	"github.com/cobrich/scam-checker-api/internal/pkg/utils"
 	"github.com/oschwald/geoip2-golang"
 )
 
@@ -41,7 +42,9 @@ func NewInfraService(city *geoip2.Reader, asn *geoip2.Reader) *InfraService {
 }
 
 // Scan выполняет все сетевые проверки и возвращает результат
-func (s *InfraService) Scan(ctx context.Context, domainName string) (*domain.GeoNetInfo, []domain.RuleMatch, int) {
+func (s *InfraService) Scan(ctx context.Context, rawURL string) (*domain.GeoNetInfo, []domain.RuleMatch, int) {
+	domainName, _ := utils.ExtractHostname(rawURL)
+
 	info := &domain.GeoNetInfo{Status: "Offline"}
 	var rules []domain.RuleMatch
 	score := 0
@@ -98,6 +101,21 @@ func (s *InfraService) Scan(ctx context.Context, domainName string) (*domain.Geo
 	if info.DNS == nil || len(info.DNS.MXRecords) == 0 {
 		score += 15
 		rules = append(rules, domain.RuleMatch{Name: "No MX Records", Desc: "Domain cannot receive emails", Score: 15})
+	}
+
+	// 5. HTTP Content Analysis (НОВОЕ)
+	// Передаем domainName (или лучше полный URL, если он есть в контексте, но пока domainName)
+	httpInfo, httpRules := s.scanHTTP(ctx, rawURL)
+	if httpInfo != nil {
+		info.HTTP = httpInfo
+		rules = append(rules, httpRules...)
+
+		// Если нашли поле пароля на сайте без HTTPS или с плохим доменом - повышаем риск
+		if httpInfo.HasPasswordField {
+			// Если сайт в базе фишинга или эвристика сработала - это критично
+			// Здесь просто добавляем баллы
+			score += 10
+		}
 	}
 
 	return info, rules, score

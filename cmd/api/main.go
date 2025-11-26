@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/cobrich/scam-checker-api/config"
@@ -13,6 +16,7 @@ import (
 	"github.com/cobrich/scam-checker-api/internal/service/infra"
 	"github.com/cobrich/scam-checker-api/internal/transport/rest"
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/oschwald/geoip2-golang"
 
@@ -116,8 +120,35 @@ func main() {
 	app.Use(logger.New())
 
 	handler := rest.NewHandler(checkerService)
+	app.Use(limiter.New(limiter.Config{
+		Max:        20,
+		Expiration: 1 * time.Minute,
+		KeyGenerator: func(c *fiber.Ctx) string {
+			return c.IP() // Лимит по IP
+		},
+		LimitReached: func(c *fiber.Ctx) error {
+			return c.Status(429).JSON(fiber.Map{
+				"error": "Too many requests. Chill out.",
+			})
+		},
+	}))
 	handler.RegisterRoutes(app)
 
 	fmt.Printf("Сервер запущен на порту %s\n", cfg.AppPort)
-	log.Fatal(app.Listen(cfg.AppPort))
+
+	// Запуск сервера в горутине
+	go func() {
+		if err := app.Listen(cfg.AppPort); err != nil {
+			log.Panic(err)
+		}
+	}()
+
+	// Ждем сигнала выключения (Ctrl+C или Docker stop)
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+
+	<-c // Блокируем, пока не придет сигнал
+	fmt.Println("Gracefully shutting down...")
+	_ = app.Shutdown()
+	fmt.Println("Server stopped")
 }

@@ -78,7 +78,8 @@ func (s *CheckerService) Analyze(ctx context.Context, rawURL string, fullScan bo
 	domainName, _ := utils.ExtractHostname(rawURL)
 	if domainName != "" {
 		// Вызываем сервис infra
-		infraInfo, infraRules, infraScore := s.infra.Scan(ctx, domainName)
+		// infraInfo, infraRules, infraScore := s.infra.Scan(ctx, domainName)
+		infraInfo, infraRules, infraScore := s.infra.Scan(ctx, rawURL)
 
 		report.Infrastructure = infraInfo
 
