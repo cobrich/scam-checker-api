@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/csv"
 	"fmt"
+	"log/slog"
+
 	"io"
 	"net/http"
 	"time"
@@ -22,7 +24,7 @@ func NewUrlHausService(repo *repository.ThreatRepository) *UrlHausService {
 
 func (s *UrlHausService) Run(ctx context.Context) error {
 	url := "https://urlhaus.abuse.ch/downloads/csv_online/"
-	fmt.Println("Запуск обновления URLhaus...")
+	slog.Info("Запуск обновления URLhaus...")
 
 	client := &http.Client{Timeout: 120 * time.Second} // Файл может быть большим
 	req, _ := http.NewRequest("GET", url, nil)
@@ -85,14 +87,18 @@ func (s *UrlHausService) Run(ctx context.Context) error {
 		if len(batch) >= batchSize {
 			inserted, err := s.repo.SaveBatch(ctx, batch)
 			if err != nil {
-				fmt.Printf("Ошибка сохранения: %v\n", err)
+				slog.Error("Ошибка сохранения: %v\n",
+					"error", err,
+				)
 			}
 			totalInserted += inserted
 			totalSkipped += (int64(len(batch)) - inserted)
 			batch = batch[:0]
 
 			if totalRead%5000 == 0 {
-				fmt.Printf("URLhaus: Обработано %d...\n", totalRead)
+				slog.Error("URLhaus: Обработано %d...\n",
+					"total_read", totalRead,
+				)
 			}
 		}
 	}
@@ -104,7 +110,10 @@ func (s *UrlHausService) Run(ctx context.Context) error {
 		totalSkipped += (int64(len(batch)) - inserted)
 	}
 
-	fmt.Printf("=== UrlHaus ЗАВЕРШЕН: %d строк, %d новых ===\n", totalRead, totalInserted)
+	slog.Info("=== UrlHaus ЗАВЕРШЕН: %d строк, %d новых ===\n",
+		"total_read", totalRead,
+		"inserted", totalInserted,
+	)
 
 	return nil
 }

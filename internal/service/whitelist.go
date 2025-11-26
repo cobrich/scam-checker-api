@@ -2,7 +2,7 @@ package service
 
 import (
 	"context"
-	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -26,9 +26,13 @@ func NewWhitelistService(ctx context.Context, repo *repository.ThreatRepository)
 
 	// Загружаем данные из БД при старте
 	if err := ws.Refresh(ctx); err != nil {
-		fmt.Printf("⚠️ Ошибка загрузки Whitelist из БД: %v. Использую пустой список.\n", err)
+		slog.Error("⚠️ Ошибка загрузки Whitelist из БД: %v. Использую пустой список.\n",
+			"error", err,
+		)
 	} else {
-		fmt.Printf("✅ Whitelist загружен: %d доменов\n", len(ws.domains))
+		slog.Info("✅ Whitelist загружен: \n",
+			"доменов", len(ws.domains),
+		)
 	}
 
 	return ws

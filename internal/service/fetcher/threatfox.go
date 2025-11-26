@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -29,7 +30,7 @@ type ThreatFoxItem struct {
 
 func (s *ThreatFoxService) Run(ctx context.Context) error {
 	url := "https://threatfox.abuse.ch/export/json/recent/"
-	fmt.Println("Запуск обновления ThreatFox...")
+	slog.Info("Запуск обновления ThreatFox...")
 
 	client := &http.Client{Timeout: 120 * time.Second}
 
@@ -96,6 +97,8 @@ func (s *ThreatFoxService) Run(ctx context.Context) error {
 		s.repo.SaveBatch(ctx, batch)
 	}
 
-	fmt.Printf("=== ThreatFox ЗАВЕРШЕН: %d записей загружено ===\n", count)
+	slog.Info("=== ThreatFox ЗАВЕРШЕН: %d записей загружено ===\n",
+		"count", count,
+	)
 	return nil
 }

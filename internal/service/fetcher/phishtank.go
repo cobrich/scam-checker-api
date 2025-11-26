@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -29,7 +30,7 @@ type phishTankEntry struct {
 
 func (s *PhishTankService) Run(ctx context.Context) error {
 	url := "https://data.phishtank.com/data/online-valid.json"
-	fmt.Println("Запуск обновления PhishTank...")
+	slog.Info("Запуск обновления PhishTank...")
 
 	client := &http.Client{Timeout: 120 * time.Second} // Увеличим таймаут, файл большой
 	req, _ := http.NewRequest("GET", url, nil)
@@ -77,7 +78,7 @@ func (s *PhishTankService) Run(ctx context.Context) error {
 	batchSize := 1000
 	batch := make([]domain.Threat, 0, batchSize)
 
-	fmt.Println("PhishTank: Начинаю потоковый парсинг...")
+	slog.Info("PhishTank: Начинаю потоковый парсинг...")
 
 	for decoder.More() {
 		var item phishTankEntry
@@ -99,13 +100,17 @@ func (s *PhishTankService) Run(ctx context.Context) error {
 		if len(batch) >= batchSize {
 			inserted, err := s.repo.SaveBatch(ctx, batch)
 			if err != nil {
-				fmt.Printf("PhishTank DB Error: %v\n", err)
+				slog.Error("PhishTank DB Error: %v\n",
+					"error", err,
+				)
 			}
 			totalInserted += inserted
 			batch = batch[:0]
 
 			if totalRead%5000 == 0 {
-				fmt.Printf("PhishTank: Прочитано %d...\n", totalRead)
+				slog.Error("PhishTank: Прочитано %d...\n",
+					"total_read", totalRead,
+				)
 			}
 		}
 	}
@@ -115,6 +120,9 @@ func (s *PhishTankService) Run(ctx context.Context) error {
 		totalInserted += inserted
 	}
 
-	fmt.Printf("=== PhishTank ЗАВЕРШЕН: %d строк, %d новых ===\n", totalRead, totalInserted)
+	slog.Info("=== PhishTank ЗАВЕРШЕН: %d строк, %d новых ===\n",
+		"total_read", totalRead,
+		"inserted", totalInserted,
+	)
 	return nil
 }

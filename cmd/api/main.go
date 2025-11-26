@@ -2,14 +2,15 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"github.com/cobrich/scam-checker-api/config"
+	"github.com/cobrich/scam-checker-api/internal/pkg/logger"
 	"github.com/cobrich/scam-checker-api/internal/repository"
 	"github.com/cobrich/scam-checker-api/internal/service"
 	"github.com/cobrich/scam-checker-api/internal/service/fetcher"
@@ -17,13 +18,15 @@ import (
 	"github.com/cobrich/scam-checker-api/internal/transport/rest"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/limiter"
-	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/oschwald/geoip2-golang"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func main() {
+	logger.Setup()
+	slog.Info("Starting Scam Checker API...")
+
 	// Загрузка конфига
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -44,7 +47,10 @@ func main() {
 			}
 		}
 
-		log.Printf("Попытка подключения к БД (%d/10) неудачна: %v. Ждем 2 сек...", i+1, err)
+		slog.Info("Попытка подключения к БД (%d/10) неудачна: %v. Ждем 2 сек...",
+			"", i+1,
+			"error", err,
+		)
 		time.Sleep(2 * time.Second)
 	}
 
@@ -56,20 +62,20 @@ func main() {
 	// Инициализируем City базу
 	cityDB, err := geoip2.Open("GeoLite2-City.mmdb")
 	if err != nil {
-		fmt.Println("⚠️ Warning: GeoLite2-City.mmdb not found. GeoIP features disabled.")
+		slog.Error("⚠️ Warning: GeoLite2-City.mmdb not found. GeoIP features disabled.")
 	}
 
 	// Инициализируем ASN базу
 	asnDB, err := geoip2.Open("GeoLite2-ASN.mmdb")
 	if err != nil {
-		fmt.Println("⚠️ Warning: GeoLite2-ASN.mmdb not found. Hosting analysis disabled.")
+		slog.Error("⚠️ Warning: GeoLite2-ASN.mmdb not found. Hosting analysis disabled.")
 	}
 	defer func() {
 		cityDB.Close()
 		asnDB.Close()
 	}()
 
-	fmt.Println("Успешное подключение к Postgres!")
+	slog.Info("Успешное подключение к Postgres!")
 
 	// Dangerous Urls
 	threatRepo := repository.NewThreatRepository(dbPool)
@@ -93,31 +99,63 @@ func main() {
 	if false {
 		go func() {
 			if err := phishService.Run(ctx); err != nil {
-				log.Printf("Ошибка фетчера: %v", err)
+				slog.Info("Ошибка фетчера: %v",
+					"error", err,
+				)
 			}
 		}()
 
 		go func() {
 			if err := urlHausService.Run(ctx); err != nil {
-				log.Printf("Ошибка фетчера: %v", err)
+				slog.Info("Ошибка фетчера: %v",
+					"error", err,
+				)
 			}
 		}()
 		go func() {
 			if err := openphishService.Run(ctx); err != nil {
-				log.Printf("Ошибка фетчера: %v", err)
+				slog.Info("Ошибка фетчера: %v",
+					"error", err,
+				)
 			}
 		}()
 
 		go func() {
 			if err := threatfoxService.Run(ctx); err != nil {
-				log.Printf("Ошибка фетчера: %v", err)
+				slog.Info("Ошибка фетчера: %v",
+					"error", err,
+				)
 			}
 		}()
 	}
 
 	app := fiber.New()
 
-	app.Use(logger.New())
+	app.Use(func(c *fiber.Ctx) error {
+		start := time.Now()
+
+		// Обрабатываем запрос
+		err := c.Next()
+
+		duration := time.Since(start)
+
+		// Собираем атрибуты для лога
+		attrs := []any{
+			slog.String("method", c.Method()),
+			slog.String("path", c.Path()),
+			slog.Int("status", c.Response().StatusCode()),
+			slog.String("ip", c.IP()),
+			slog.String("duration", duration.String()),
+		}
+
+		// Если была ошибка, добавляем её в лог
+		if err != nil {
+			attrs = append(attrs, slog.String("error", err.Error()))
+		}
+
+		slog.Info("http_request", attrs...)
+		return err
+	})
 
 	handler := rest.NewHandler(checkerService)
 	app.Use(limiter.New(limiter.Config{
@@ -134,7 +172,9 @@ func main() {
 	}))
 	handler.RegisterRoutes(app)
 
-	fmt.Printf("Сервер запущен на порту %s\n", cfg.AppPort)
+	slog.Info("Сервер запущен:",
+		"port", cfg.AppPort,
+	)
 
 	// Запуск сервера в горутине
 	go func() {
@@ -148,7 +188,7 @@ func main() {
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 
 	<-c // Блокируем, пока не придет сигнал
-	fmt.Println("Gracefully shutting down...")
+	slog.Info("Gracefully shutting down...")
 	_ = app.Shutdown()
-	fmt.Println("Server stopped")
+	slog.Info("Server stopped")
 }

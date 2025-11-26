@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -21,7 +22,7 @@ func NewOpenPhishService(repo *repository.ThreatRepository) *OpenPhishService {
 
 func (s *OpenPhishService) Run(ctx context.Context) error {
 	url := "https://openphish.com/feed.txt"
-	fmt.Println("Запуск обновления OpenPhish...")
+	slog.Info("Запуск обновления OpenPhish...")
 
 	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Get(url)
@@ -80,7 +81,10 @@ func (s *OpenPhishService) Run(ctx context.Context) error {
 	}
 
 	// Красивый отчет
-	fmt.Printf("=== OpenPhish ЗАВЕРШЕН: %d строк, %d новых ===\n", totalRead, totalInserted)
+	slog.Info("=== OpenPhish ЗАВЕРШЕН: %d строк, %d новых ===\n",
+		"total_read", totalRead,
+		"inserted", totalInserted,
+	)
 
 	return nil
 }

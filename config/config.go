@@ -1,7 +1,7 @@
 package config
 
 import (
-	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/joho/godotenv"
@@ -19,7 +19,7 @@ func LoadConfig() (*Config, error) {
 		// это не должно быть критической ошибкой.
 		// Лучше просто проигнорировать ошибку или проверить os.IsNotExist
 		// return nil, err  <-- Убери return, пусть программа продолжает работу
-		fmt.Println("No .env file found, using system environment variables")
+		slog.Info("No .env file found, using system environment variables")
 	}
 
 	cfg := &Config{
