@@ -205,7 +205,7 @@ func (s *InfraService) getSSLDetails(domainName string) *domain.SSLInfo {
 	conn, err := tls.DialWithDialer(dialer, "tcp", domainName+":443", &tls.Config{InsecureSkipVerify: true})
 
 	if err != nil {
-		return info // Не удалось подключиться
+		return nil
 	}
 	defer conn.Close()
 
