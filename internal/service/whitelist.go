@@ -1,36 +1,62 @@
 package service
 
 import (
+	"context"
+	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cobrich/scam-checker-api/internal/pkg/utils"
+	"github.com/cobrich/scam-checker-api/internal/repository"
 )
 
 type WhitelistService struct {
 	domains map[string]bool
 	mu      sync.RWMutex // Мьютекс для потокобезопасности (если будешь обновлять список на лету)
+	repo    *repository.ThreatRepository
 }
 
-func NewWhitelistService() *WhitelistService {
+func NewWhitelistService(ctx context.Context, repo *repository.ThreatRepository) *WhitelistService {
 	// Инициализируем карту
 	ws := &WhitelistService{
 		domains: make(map[string]bool),
+		repo:    repo,
 	}
 
-	// Загружаем популярные домены (в реальности лучше грузить из файла/БД)
-	topDomains := []string{
-		"google.com", "youtube.com", "facebook.com", "instagram.com",
-		"twitter.com", "wikipedia.org", "whatsapp.com", "amazon.com",
-		"vk.com", "yandex.ru", "sberbank.ru", "mail.ru", "t.me",
-		"github.com", "stackoverflow.com", "microsoft.com", "apple.com",
-	}
-
-	for _, d := range topDomains {
-		ws.domains[d] = true
+	// Загружаем данные из БД при старте
+	if err := ws.Refresh(ctx); err != nil {
+		fmt.Printf("⚠️ Ошибка загрузки Whitelist из БД: %v. Использую пустой список.\n", err)
+	} else {
+		fmt.Printf("✅ Whitelist загружен: %d доменов\n", len(ws.domains))
 	}
 
 	return ws
+}
+
+// Refresh обновляет данные из БД (можно вызывать периодически)
+func (s *WhitelistService) Refresh(ctx context.Context) error {
+	// Ставим таймаут, чтобы не зависнуть при старте
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	list, err := s.repo.GetWhitelist(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Создаем новую карту
+	newMap := make(map[string]bool)
+	for _, d := range list {
+		newMap[d] = true
+	}
+
+	// Подменяем карту атомарно (Thread-safe)
+	s.mu.Lock()
+	s.domains = newMap
+	s.mu.Unlock()
+
+	return nil
 }
 
 func (s *WhitelistService) IsWhitelisted(rawURL string) bool {

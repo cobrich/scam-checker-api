@@ -118,3 +118,25 @@ func (r *ThreatRepository) GetThreatByHash(ctx context.Context, hash string) (*d
 	// Если всё ок - возвращаем найденную угрозу
 	return &t, nil
 }
+
+// GetWhitelist загружает все домены из таблицы whitelist
+func (r *ThreatRepository) GetWhitelist(ctx context.Context) ([]string, error) {
+	query := "SELECT domain FROM whitelist"
+
+	rows, err := r.db.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var domains []string
+	for rows.Next() {
+		var d string
+		if err := rows.Scan(&d); err != nil {
+			continue // Пропускаем битые строки, если вдруг
+		}
+		domains = append(domains, d)
+	}
+
+	return domains, rows.Err()
+}

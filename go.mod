@@ -3,6 +3,7 @@ module github.com/cobrich/scam-checker-api
 go 1.25.4
 
 require (
+	github.com/agnivade/levenshtein v1.2.1
 	github.com/gofiber/fiber/v2 v2.52.10
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/joho/godotenv v1.5.1

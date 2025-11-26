@@ -9,22 +9,24 @@ import (
 	"github.com/cobrich/scam-checker-api/config"
 	"github.com/cobrich/scam-checker-api/internal/repository"
 	"github.com/cobrich/scam-checker-api/internal/service"
-	"github.com/cobrich/scam-checker-api/internal/service/fetcher"
+	// "github.com/cobrich/scam-checker-api/internal/service/fetcher"
+	"github.com/cobrich/scam-checker-api/internal/service/infra"
 	"github.com/cobrich/scam-checker-api/internal/transport/rest"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/logger"
+	"github.com/oschwald/geoip2-golang"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func main() {
-	// 1. Загрузка конфига
+	// Загрузка конфига
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		log.Fatalf("Ошибка конфига: %v", err)
 	}
 
-	// 2. Подключение к БД с повторными попытками (Retry Loop)
+	// Подключение к БД с повторными попытками (Retry Loop)
 	ctx := context.Background()
 	var dbPool *pgxpool.Pool
 
@@ -47,28 +49,52 @@ func main() {
 	}
 	defer dbPool.Close()
 
+	// Инициализируем City базу
+	cityDB, err := geoip2.Open("GeoLite2-City.mmdb")
+	if err != nil {
+		fmt.Println("⚠️ Warning: GeoLite2-City.mmdb not found. GeoIP features disabled.")
+	}
+
+	// Инициализируем ASN базу
+	asnDB, err := geoip2.Open("GeoLite2-ASN.mmdb")
+	if err != nil {
+		fmt.Println("⚠️ Warning: GeoLite2-ASN.mmdb not found. Hosting analysis disabled.")
+	}
+	defer func() {
+		cityDB.Close()
+		asnDB.Close()
+	}()
+
 	fmt.Println("Успешное подключение к Postgres!")
 
-	// 3. Инициализация слоев
+	// Dangerous Urls
 	threatRepo := repository.NewThreatRepository(dbPool)
 
-	phishService := fetcher.NewPhishTankService(threatRepo)
-	urlHausService := fetcher.NewUrlHausService(threatRepo)
-	checkerService := service.NewCheckerService(threatRepo)
+	// Fetching Urls from API's
+	// phishService := fetcher.NewPhishTankService(threatRepo)
+	// urlHausService := fetcher.NewUrlHausService(threatRepo)
 
-	// 4. Запуск Фетчера (в отдельной горутине или просто для теста)
-	// В будущем здесь будет HTTP сервер, а фетчер будет запускаться кроном
-	go func() {
-		if err := phishService.Run(ctx); err != nil {
-			log.Printf("Ошибка фетчера: %v", err)
-		}
-	}()
+	// Ligitimate Urls
+	whitelistService := service.NewWhitelistService(ctx, threatRepo)
 
-	go func() {
-		if err := urlHausService.Run(ctx); err != nil {
-			log.Printf("Ошибка фетчера: %v", err)
-		}
-	}()
+	// Network Rules 
+	infraService := infra.NewInfraService(cityDB, asnDB)
+
+	// The orchestrator
+	checkerService := service.NewCheckerService(threatRepo, whitelistService, infraService)
+
+	// Запуск Фетчеров (в отдельной горутине или просто для теста)
+	// go func() {
+	// 	if err := phishService.Run(ctx); err != nil {
+	// 		log.Printf("Ошибка фетчера: %v", err)
+	// 	}
+	// }()
+
+	// go func() {
+	// 	if err := urlHausService.Run(ctx); err != nil {
+	// 		log.Printf("Ошибка фетчера: %v", err)
+	// 	}
+	// }()
 
 	app := fiber.New()
 

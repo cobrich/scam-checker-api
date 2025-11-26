@@ -1,28 +1,23 @@
 package domain
 
-// FullReport - Чистый и красивый отчет
+// FullReport - Плоская и понятная структура
 type FullReport struct {
 	Target    string `json:"target"`
-	Verdict   string `json:"verdict"`             // Safe, Suspicious, Dangerous
-	RiskScore int    `json:"risk_score"`          // 0-100
-	Reason    string `json:"reason,omitempty"`    // Например: "Whitelisted" или "Found in database"
+	Verdict   string `json:"verdict"`    // Safe, Suspicious, Dangerous
+	RiskScore int    `json:"risk_score"` // 0-100
+	Reason    string `json:"reason,omitempty"`
 
-	// Блок угроз (Показываем, только если есть угрозы или проверки)
-	Threats *ThreatInfo `json:"threats,omitempty"`
+	// 1. Факты из баз данных (Точное совпадение)
+	Blacklists *BlacklistInfo `json:"blacklists,omitempty"`
 
-	// Технические данные (Показываем, только если сайт жив)
+	// 2. Анализ поведения и текста (Подозрения)
+	Heuristics []RuleMatch `json:"heuristics,omitempty"`
+
+	// 3. Технические данные (Инфраструктура)
 	Infrastructure *GeoNetInfo `json:"infrastructure,omitempty"`
 }
 
-type ThreatInfo struct {
-	// Если в черном списке - покажем, иначе скроем
-	Blacklist *BlacklistStatus `json:"blacklist,omitempty"`
-	
-	// Если сработала эвристика - покажем список правил
-	Heuristics []RuleMatch `json:"heuristics,omitempty"`
-}
-
-type BlacklistStatus struct {
+type BlacklistInfo struct {
 	Source     string `json:"source"`
 	ExternalID string `json:"ext_id"`
 	FirstSeen  string `json:"first_seen"`
@@ -37,7 +32,7 @@ type RuleMatch struct {
 type GeoNetInfo struct {
 	Status string `json:"status"` // "Online" или "Offline"
 	IP     string `json:"ip,omitempty"`
-	
+
 	// Вложенные структуры (указатели, чтобы скрывать через nil)
 	Geo *GeoLocation `json:"geolocation,omitempty"`
 	SSL *SSLInfo     `json:"ssl,omitempty"`
