@@ -85,10 +85,18 @@ func main() {
 	// 5. Инициализация слоев
 	threatRepo := repository.NewThreatRepository(dbPool)
 
+	configLoader := service.NewConfigLoader(threatRepo) // threatRepo уже имеет методы конфига
+	appConfig, err := configLoader.LoadAll(ctx)
+	if err != nil {
+		slog.Error("Failed to load config from DB", "error", err)
+		// Можно упасть, а можно продолжить с пустым конфигом (но лучше упасть)
+		os.Exit(1)
+	}
+
 	// Сервисы
 	whitelistService := service.NewWhitelistService(ctx, threatRepo)
-	infraService := infra.NewInfraService(cityDB, asnDB)
-	checkerService := service.NewCheckerService(threatRepo, whitelistService, infraService)
+	infraService := infra.NewInfraService(cityDB, asnDB, appConfig)
+	checkerService := service.NewCheckerService(threatRepo, whitelistService, infraService, appConfig)
 
 	// 6. Запуск Фетчеров
 	shouldRunFetchers := cfg.EnableFetchers == "true"

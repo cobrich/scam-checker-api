@@ -8,8 +8,8 @@ import (
 	"github.com/cobrich/scam-checker-api/internal/domain"
 	"github.com/cobrich/scam-checker-api/internal/pkg/utils"
 	"github.com/cobrich/scam-checker-api/internal/repository"
+	"github.com/cobrich/scam-checker-api/internal/service/analyzer"
 	"github.com/cobrich/scam-checker-api/internal/service/infra"
-	metanalyzer "github.com/cobrich/scam-checker-api/internal/service/meta-analyzer"
 	"github.com/cobrich/scam-checker-api/internal/service/whois"
 )
 
@@ -18,14 +18,16 @@ type CheckerService struct {
 	whitelist *WhitelistService
 	infra     *infra.InfraService
 	whois     *whois.WhoisService
+	analyzer  *analyzer.Analyzer
 }
 
-func NewCheckerService(repo *repository.ThreatRepository, whitelist *WhitelistService, infra *infra.InfraService) *CheckerService {
+func NewCheckerService(repo *repository.ThreatRepository, whitelist *WhitelistService, infra *infra.InfraService, cfg *domain.AppConfig) *CheckerService {
 	return &CheckerService{
 		repo:      repo,
 		whitelist: whitelist,
 		infra:     infra,
 		whois:     whois.NewWhoisService(),
+		analyzer:  analyzer.NewAnalyzer(cfg),
 	}
 }
 
@@ -87,7 +89,7 @@ func (s *CheckerService) Analyze(ctx context.Context, rawURL string, fullScan bo
 	domainName, _ := utils.ExtractHostname(rawURL)
 
 	// Подготовка метаданных для анализатора
-	meta := &metanalyzer.AnalyzeMeta{
+	meta := &analyzer.AnalyzeMeta{
 		IsWhitelisted: false,
 		IsBlacklisted: isBlacklisted,
 		DomainAgeDays: 0,
@@ -146,7 +148,7 @@ func (s *CheckerService) Analyze(ctx context.Context, rawURL string, fullScan bo
 	}
 
 	// 4. Analyzer (Heuristics) - Теперь вызываем в конце с полными данными
-	heuristicRules, heuristicScore := metanalyzer.AnalyzeWithMeta(rawURL, meta)
+	heuristicScore, heuristicRules := s.analyzer.Analyze(rawURL, meta)
 
 	if len(heuristicRules) > 0 {
 		report.Heuristics = append(report.Heuristics, heuristicRules...)

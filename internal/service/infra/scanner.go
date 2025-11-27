@@ -12,43 +12,14 @@ import (
 	"github.com/oschwald/geoip2-golang"
 )
 
-var riskyCountries = map[string]int{
-	"Russia":      15,
-	"China":       15,
-	"Iran":        30,
-	"North Korea": 50,
-	"Brazil":      10,
-	"Netherlands": 10,
-	"Turkey":      10,
-
-	// Francophone Africa (Common source of scams targeting France)
-	"Cote D'Ivoire": 25, // Ivory Coast - очень высокий риск для Франции
-	"Benin":         25,
-	"Cameroon":      20,
-	"Senegal":       15,
-	"Mali":          15,
-
-	// Other
-	"Nigeria": 20, "Vietnam": 10,
-}
-
-var bulletproofHosts = []string{
-	"FlokiNET", "Shinjiru", "AbeloHost", "Offshore", "AnonymousSpeech",
-	"Njalla", "Privex", "OrangeWebsite", "PrivateLayer", "Virtual Systems",
-}
-
-var cloudProviders = []string{
-	"DigitalOcean", "Hetzner", "OVH", "Namecheap", "Hostinger",
-	"Choopa", "Vultr", "Google LLC", "Amazon.com", "Cloudflare",
-}
-
 type InfraService struct {
 	geoCity *geoip2.Reader
 	geoASN  *geoip2.Reader
+	cfg     *domain.AppConfig
 }
 
-func NewInfraService(city *geoip2.Reader, asn *geoip2.Reader) *InfraService {
-	return &InfraService{geoCity: city, geoASN: asn}
+func NewInfraService(city *geoip2.Reader, asn *geoip2.Reader, cfg *domain.AppConfig) *InfraService {
+	return &InfraService{geoCity: city, geoASN: asn, cfg: cfg}
 }
 
 // Scan выполняет все сетевые проверки и возвращает результат
@@ -79,10 +50,10 @@ func (s *InfraService) Scan(ctx context.Context, rawURL string) (*domain.GeoNetI
 	// 2. GeoIP & Hosting
 	info.Geo = s.getGeoInfo(info.IP)
 
-	// Проверка страны
-	if risk, ok := riskyCountries[info.Geo.Country]; ok {
-		score += risk
-		rules = append(rules, domain.RuleMatch{Name: "Risky Country", Desc: info.Geo.Country, Score: risk})
+	// Проверка страны (Используем s.cfg.GeoRisks)
+	if val, ok := s.cfg.GeoRisks[info.Geo.Country]; ok {
+		score += val
+		rules = append(rules, domain.RuleMatch{Name: "Risky Country", Desc: info.Geo.Country, Score: val})
 	}
 
 	// Проверяем хостинг (возвращает баллы и правила)
@@ -190,23 +161,32 @@ func (s *InfraService) analyzeHosting(geo *domain.GeoLocation) (int, []domain.Ru
 		return 0, nil
 	}
 
-	// 1. Bulletproof Hosting
-	for _, bp := range bulletproofHosts {
-		if strings.Contains(strings.ToLower(geo.ISP), strings.ToLower(bp)) {
-			score += 40
-			rules = append(rules, domain.RuleMatch{Name: "Bulletproof Hosting", Desc: geo.ISP, Score: 40})
-			return score, rules // Если нашли Bulletproof, дальше не проверяем Cloud
-		}
-	}
+	ispLower := strings.ToLower(geo.ISP)
 
-	// 2. Cloud Hosting
-	// Cloud Hosting - больше НЕ штрафуем (это норма)
-	// Оставляем правило с 0 score для информации
-	for _, p := range cloudProviders {
-		if strings.Contains(geo.ISP, p) {
-			// score += 5
-			rules = append(rules, domain.RuleMatch{Name: "Cloud Hosting", Desc: geo.ISP, Score: 0})
-			break
+	// Проходим по списку из БД
+	for _, hostRule := range s.cfg.Hosting {
+		if strings.Contains(ispLower, strings.ToLower(hostRule.Pattern)) {
+			// Если это Bulletproof - штрафуем сильно
+			if hostRule.Type == "bulletproof" {
+				score += hostRule.Score
+				rules = append(rules, domain.RuleMatch{
+					Name:  "Bulletproof Hosting",
+					Desc:  geo.ISP,
+					Score: hostRule.Score,
+				})
+				return score, rules // Нашли худшее, выходим
+			}
+
+			// Если Cloud - просто информируем (score может быть 0 или 5)
+			if hostRule.Type == "cloud" {
+				rules = append(rules, domain.RuleMatch{
+					Name:  "Cloud Hosting",
+					Desc:  geo.ISP,
+					Score: hostRule.Score,
+				})
+				// Не выходим, вдруг там еще что-то
+				break
+			}
 		}
 	}
 	return score, rules

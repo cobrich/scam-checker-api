@@ -1,4 +1,4 @@
-package analyzer
+package analyzerv1
 
 import (
 	"encoding/base64"
