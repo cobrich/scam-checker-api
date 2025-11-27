@@ -7,6 +7,10 @@ type FullReport struct {
 	RiskScore int    `json:"risk_score"` // 0-100
 	Reason    string `json:"reason,omitempty"`
 
+	// Краткая сводка и сигналы
+	Summary *HeuristicSummary `json:"summary,omitempty"`
+	Signals []string          `json:"signals,omitempty"`
+
 	// 1. Факты из баз данных (Точное совпадение)
 	Blacklists []BlacklistInfo `json:"blacklists,omitempty"`
 
@@ -15,6 +19,13 @@ type FullReport struct {
 
 	// 3. Технические данные (Инфраструктура)
 	Infrastructure *GeoNetInfo `json:"infrastructure,omitempty"`
+}
+
+type HeuristicSummary struct {
+	Critical int `json:"critical"` // Кол-во критических угроз
+	High     int `json:"high"`
+	Medium   int `json:"medium"`
+	Low      int `json:"low"`
 }
 
 type BlacklistInfo struct {
@@ -46,6 +57,8 @@ type GeoLocation struct {
 	Country string `json:"country"`
 	City    string `json:"city,omitempty"`
 	ISP     string `json:"isp"`
+	ASN     int    `json:"asn,omitempty"`
+	Org     string `json:"organization,omitempty"`
 }
 
 type SSLInfo struct {
@@ -62,8 +75,9 @@ type DNSDetails struct {
 }
 
 type HTTPDetails struct {
-	StatusCode       int      `json:"status_code"`
-	Title            string   `json:"page_title"`
+	StatusCode  int    `json:"status_code"`
+	Title       string `json:"page_title"`
+	ContentType string `json:"content_type,omitempty"`
 	RedirectChain    []string `json:"redirect_chain,omitempty"` // История редиректов
 	HasPasswordField bool     `json:"has_password_field"`       // Нашли ли поле ввода пароля?
 	HasCreditCard    bool     `json:"has_credit_card_field"`    // Нашли ли поле карты?
