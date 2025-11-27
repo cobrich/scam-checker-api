@@ -2,12 +2,13 @@ package service
 
 import (
 	"context"
+	"strings"
 
 	"github.com/cobrich/scam-checker-api/internal/domain"
 	"github.com/cobrich/scam-checker-api/internal/pkg/utils"
 	"github.com/cobrich/scam-checker-api/internal/repository"
-	"github.com/cobrich/scam-checker-api/internal/service/analyzer"
 	"github.com/cobrich/scam-checker-api/internal/service/infra"
+	meta_analyzer "github.com/cobrich/scam-checker-api/internal/service/meta-analyzer"
 )
 
 type CheckerService struct {
@@ -40,7 +41,10 @@ func (s *CheckerService) Analyze(ctx context.Context, rawURL string, fullScan bo
 
 	// 2. Database check
 	threats, err := s.repo.GetThreatsByHash(ctx, utils.HashURL(rawURL))
+	isBlacklisted := false
+
 	if err == nil && len(threats) > 0 {
+		isBlacklisted = true
 		report.RiskScore = 100
 		report.Verdict = "Dangerous"
 		report.Reason = "Found in Blacklist"
@@ -60,25 +64,32 @@ func (s *CheckerService) Analyze(ctx context.Context, rawURL string, fullScan bo
 		}
 	}
 
-	// 3. Analyzer (Heuristics)
-	heuristicRules, heuristicScore := analyzer.Analyze(rawURL)
+	// // 3. Analyzer (Heuristics)
+	// heuristicRules, heuristicScore := analyzer.Analyze(rawURL)
 
-	// Добавляем их в отчет
-	if len(heuristicRules) > 0 {
-		report.Heuristics = append(report.Heuristics, heuristicRules...)
-		report.RiskScore += heuristicScore
-		if report.Reason == "" {
-			report.Reason = "Heuristic analyze"
-		}
+	// // Добавляем их в отчет
+	// if len(heuristicRules) > 0 {
+	// 	report.Heuristics = append(report.Heuristics, heuristicRules...)
+	// 	report.RiskScore += heuristicScore
+	// 	if report.Reason == "" {
+	// 		report.Reason = "Heuristic analyze"
+	// 	}
+	// }
+
+	// 3. Infra Scan (Сначала сеть, чтобы получить данные для анализатора)
+	domainName, _ := utils.ExtractHostname(rawURL)
+
+	// Подготовка метаданных для анализатора
+	meta := &meta_analyzer.AnalyzeMeta{
+		IsWhitelisted: false,
+		IsBlacklisted: isBlacklisted,
+		DomainAgeDays: 0,
+		IsTrustedASN:  false,
 	}
 
-	// 4. Infra (Сетевая проверка)
-	domainName, _ := utils.ExtractHostname(rawURL)
 	if fullScan && domainName != "" {
 		// Вызываем сервис infra
-		// infraInfo, infraRules, infraScore := s.infra.Scan(ctx, domainName)
 		infraInfo, infraRules, infraScore := s.infra.Scan(ctx, rawURL)
-
 		report.Infrastructure = infraInfo
 
 		// Добавляем правила от инфраструктуры в общий список угроз
@@ -88,6 +99,30 @@ func (s *CheckerService) Analyze(ctx context.Context, rawURL string, fullScan bo
 
 		if report.RiskScore < 100 {
 			report.RiskScore += infraScore
+		}
+
+		// Заполняем мету данными из инфраструктуры
+		if infraInfo.SSL != nil {
+			meta.DomainAgeDays = infraInfo.SSL.AgeDays
+		}
+		if infraInfo.Geo != nil {
+			meta.IsTrustedASN = isTrustedASN(infraInfo.Geo.ISP)
+		}
+	}
+
+	// 4. Analyzer (Heuristics) - Теперь вызываем в конце с полными данными
+	heuristicRules, heuristicScore := meta_analyzer.AnalyzeWithMeta(rawURL, meta)
+
+	if len(heuristicRules) > 0 {
+		report.Heuristics = append(report.Heuristics, heuristicRules...)
+
+		// Добавляем баллы, только если риск еще не 100
+		if report.RiskScore < 100 {
+			report.RiskScore += heuristicScore
+		}
+
+		if report.Reason == "" {
+			report.Reason = "Suspicious Activity Detected"
 		}
 	}
 
@@ -119,4 +154,16 @@ func calculateVerdict(score int) string {
 		return "Suspicious"
 	}
 	return "Dangerous"
+}
+
+// Простой список доверенных провайдеров для снижения баллов
+func isTrustedASN(isp string) bool {
+	isp = strings.ToLower(isp)
+	trusted := []string{"google", "amazon", "cloudflare", "microsoft", "fastly", "akamai"}
+	for _, t := range trusted {
+		if strings.Contains(isp, t) {
+			return true
+		}
+	}
+	return false
 }
