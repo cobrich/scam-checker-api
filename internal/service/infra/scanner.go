@@ -163,6 +163,8 @@ func (s *InfraService) getGeoInfo(ip string) *domain.GeoLocation {
 	if s.geoASN != nil {
 		if record, err := s.geoASN.ASN(parsedIP); err == nil {
 			geo.ISP = record.AutonomousSystemOrganization
+			geo.Org = record.AutonomousSystemOrganization // Часто совпадает, но пусть будет
+			geo.ASN = int(record.AutonomousSystemNumber)
 		}
 	}
 	return geo

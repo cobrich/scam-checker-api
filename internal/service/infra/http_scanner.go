@@ -42,7 +42,7 @@ func (s *InfraService) scanHTTP(ctx context.Context, urlStr string) (*domain.HTT
 	}
 
 	// Создаем запрос
-	// Важно: если urlStr пришел без http/https, надо добавить. 
+	// Важно: если urlStr пришел без http/https, надо добавить.
 	// Но наш оркестратор уже должен был это сделать или мы берем domainName.
 	// Лучше брать исходный rawURL или добавить https://
 	target := urlStr
@@ -54,7 +54,7 @@ func (s *InfraService) scanHTTP(ctx context.Context, urlStr string) (*domain.HTT
 	if err != nil {
 		return nil, rules
 	}
-	
+
 	// Притворяемся браузером
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
@@ -66,8 +66,10 @@ func (s *InfraService) scanHTTP(ctx context.Context, urlStr string) (*domain.HTT
 
 	details.StatusCode = resp.StatusCode
 
+	details.ContentType = resp.Header.Get("Content-Type")
+
 	// Читаем тело (Максимум 200KB для безопасности!)
-	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 200*1024)) 
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 200*1024))
 	if err != nil {
 		return details, rules
 	}
@@ -85,8 +87,8 @@ func (s *InfraService) scanHTTP(ctx context.Context, urlStr string) (*domain.HTT
 	if passwordRegex.MatchString(bodyStr) {
 		details.HasPasswordField = true
 		rules = append(rules, domain.RuleMatch{
-			Name: "Password Field Detected", 
-			Desc: "Page contains a password input field", 
+			Name:  "Password Field Detected",
+			Desc:  "Page contains a password input field",
 			Score: 10, // Само по себе не страшно, но в сочетании с другими факторами - риск
 		})
 	}
@@ -95,8 +97,8 @@ func (s *InfraService) scanHTTP(ctx context.Context, urlStr string) (*domain.HTT
 	if ccRegex.MatchString(bodyStr) {
 		details.HasCreditCard = true
 		rules = append(rules, domain.RuleMatch{
-			Name: "Credit Card Field", 
-			Desc: "Page requests payment details", 
+			Name:  "Credit Card Field",
+			Desc:  "Page requests payment details",
 			Score: 20,
 		})
 	}
@@ -106,8 +108,8 @@ func (s *InfraService) scanHTTP(ctx context.Context, urlStr string) (*domain.HTT
 		// Если было много редиректов
 		if len(details.RedirectChain) > 2 {
 			rules = append(rules, domain.RuleMatch{
-				Name: "Multiple Redirects", 
-				Desc: "Chain of redirects detected", 
+				Name:  "Multiple Redirects",
+				Desc:  "Chain of redirects detected",
 				Score: 15,
 			})
 		}
