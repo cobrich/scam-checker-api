@@ -339,15 +339,140 @@ var (
 	base64Like         = regexp.MustCompile(`^[A-Za-z0-9+/]{20,}={0,2}$`)
 )
 
+// ---------------------------------------------------------
+// 1. PROTECTED BRANDS (Топ мишеней фишинга)
+// Включает: Соцсети, Банки (Глобал + РФ/СНГ), Крипто, Почты, Сервисы, Доставка
+// ---------------------------------------------------------
 var protectedBrands = []string{
-	"google", "gmail", "facebook", "instagram", "twitter", "paypal",
-	"binance", "coinbase", "sberbank", "tinkoff", "alpha",
-	"microsoft", "office365", "apple", "icloud", "appleid", // <--- ДОБАВИЛ ICLOUD
-	"amazon", "netflix", "telegram", "whatsapp", "steam", "discord",
+	// Tech & Email
+	"google", "gmail", "microsoft", "office365", "outlook", "onedrive",
+	"apple", "icloud", "appleid", "adobe", "dropbox", "yahoo", "yandex", "mail.ru",
+
+	// Social & Msg
+	"facebook", "instagram", "whatsapp", "telegram", "twitter", "x.com",
+	"linkedin", "tiktok", "snapchat", "discord", "skype", "slack", "zoom",
+
+	// Finance & Payment
+	"paypal", "stripe", "visa", "mastercard", "westernunion", "wise", "revolut",
+	"chase", "wellsfargo", "bofa", "citibank", "hsbc",
+
+	// Banks (CIS/Russia/Kazakhstan context)
+	"sberbank", "sber", "tinkoff", "tbank", "vtb", "alfabank", "gazprombank",
+	"kaspi", "halyk", "privatbank", "monobank",
+
+	// Crypto (High Risk)
+	"binance", "coinbase", "metamask", "trustwallet", "ledger", "trezor",
+	"blockchain", "kraken", "kucoin", "bybit", "okx", "phantom", "opensea",
+
+	// E-commerce & Services
+	"amazon", "netflix", "spotify", "ebay", "booking", "airbnb", "uber",
+	"roblox", "steam", "twitch", "chatgpt", "openai", "gosuslugi",
+
+	// Logistics
+	"dhl", "fedex", "ups", "usps", "royalmail", "cdek", "pochta",
+
+	// --- French Government & Services (Critical for France) ---
+	"ameli", "assurance-maladie", // Health insurance (Top target)
+	"caf",                              // Family allowance
+	"impots", "gouv", "france-connect", // Taxes & Login
+	"cpf", "moncompteformation", // Training funds
+	"laposte", "chronopost", // Post & Delivery
+	"sncf", "oui-sncf", // Trains
+	"pole-emploi", "france-travail",
+
+	// --- French Banks & Insurance ---
+	"credit-agricole", "creditagricole", "ca-paris",
+	"societe-generale", "societegenerale",
+	"bnp", "bnpparibas",
+	"banquepostale", "labanquepostale",
+	"lcl", "credit-lyonnais",
+	"bpce", "caisse-epargne", "banque-populaire",
+	"boursorama", "boursobank", "fortuneo", "hellobank",
+	"axa", "groupama", "maif", "macif",
+
+	// --- French E-commerce & Telco ---
+	"leboncoin", "vinted", "cdiscount", "fnac", "darty",
+	"orange", "sfr", "bouygues", "free", "free-mobile",
 }
-var suspiciousTLDs = map[string]bool{"xyz": true, "top": true, "gq": true, "tk": true, "ml": true, "cf": true, "ga": true, "buzz": true, "cn": true, "work": true, "click": true, "rest": true, "kim": true, "review": true, "country": true, "zip": true, "mov": true}
-var suspiciousKeywords = map[string]bool{"login": true, "secure": true, "account": true, "update": true, "verify": true, "wallet": true, "confirm": true, "auth": true, "support": true, "billing": true, "signin": true, "recover": true, "unlock": true, "bonus": true, "giveaway": true, "free": true, "airdrop": true, "claim": true}
-var urlShorteners = map[string]bool{"bit.ly": true, "t.co": true, "goo.gl": true, "tinyurl.com": true, "is.gd": true, "cutt.ly": true, "shorte.st": true, "clck.ru": true, "rb.gy": true}
+
+// ---------------------------------------------------------
+// 2. SUSPICIOUS TLDs (Самые заспамленные зоны)
+// Источник: Spamhaus "The World's Most Abused TLDs"
+// ---------------------------------------------------------
+var suspiciousTLDs = map[string]bool{
+	// The "Classics"
+	"xyz": true, "top": true, "gq": true, "tk": true, "ml": true,
+	"cf": true, "ga": true, "cn": true, "ru": false,
+
+	// New gTLDs (Cheap & Abused)
+	"buzz": true, "click": true, "country": true, "icu": true, "kelly": true,
+	"oops": true, "party": true, "rest": true, "review": true, "site": true,
+	"work": true, "zone": true, "link": true, "live": true, "store": true,
+	"shop": true, "club": true, "vip": true, "pro": true, "info": true,
+	"mobi": true, "kim": true, "best": true, "cyou": true, "monster": true,
+	"quest": true, "beauty": true, "hair": true, "skin": true, "mom": true,
+
+	// Dangerous file extensions (Google Zip/Mov update)
+	"zip": true, "mov": true,
+}
+
+// ---------------------------------------------------------
+// 3. SUSPICIOUS KEYWORDS (Слова-триггеры)
+// ---------------------------------------------------------
+var suspiciousKeywords = map[string]bool{
+	// Auth & Security
+	"login": true, "signin": true, "log-in": true, "sign-in": true,
+	"secure": true, "security": true, "account": true, "verify": true,
+	"verification": true, "auth": true, "authenticate": true,
+	"password": true, "credential": true, "update": true, "confirm": true,
+	"recovery": true, "recover": true, "unlock": true, "suspended": true,
+	"blocked": true, "restriction": true, "safe": true, "check": true,
+
+	// Finance
+	"wallet": true, "bank": true, "payment": true, "pay": true,
+	"invoice": true, "billing": true, "receipt": true, "refund": true,
+	"card": true, "credit": true, "withdraw": true, "transaction": true,
+
+	// Crypto / Scams
+	"airdrop": true, "claim": true, "mint": true, "presale": true,
+	"giveaway": true, "bonus": true, "gift": true, "promo": true,
+	"free": true, "winner": true, "prize": true, "invest": true,
+	"profit": true, "mining": true,
+
+	// Support / System
+	"support": true, "help": true, "service": true, "client": true,
+	"admin": true, "system": true, "server": true, "portal": true,
+
+	// French (Specific)
+	"connexion": true, "connecter": true, "securite": true, "securise": true,
+	"compte": true, "verifier": true, "verification-identite": true,
+	"motdepasse": true, "mdp": true, "identifiant": true,
+	"mise-a-jour": true, "maj": true, "confirmer": true, "validation": true,
+	"debloquer": true, "acces": true, "espace-client": true, "mon-espace": true,
+	"banque": true, "bancaire": true, "paiement": true, "virement": true,
+	"remboursement": true, "facture": true, "impaye": true,
+	"livraison": true, "colis": true, "suivi": true, "expedition": true,
+	"gendarmerie": true, "police": true, "amende": true, "convocation": true, // Police scams
+	"urgent": true, "alerte": true, "info": true, "service-client": true,
+}
+
+// ---------------------------------------------------------
+// 4. URL SHORTENERS (Сокращатели)
+// ---------------------------------------------------------
+var urlShorteners = map[string]bool{
+	// Global Giants
+	"bit.ly": true, "goo.gl": true, "t.co": true, "tinyurl.com": true,
+	"is.gd": true, "ow.ly": true, "buff.ly": true, "rebrand.ly": true,
+	"bl.ink": true, "cutt.ly": true, "shorte.st": true,
+
+	// Common in Spam
+	"bit.do": true, "x.co": true, "lnkd.in": true, "db.tt": true,
+	"qr.ae": true, "adf.ly": true, "bc.vc": true, "snip.ly": true,
+	"po.st": true, "q.gs": true, "v.gd": true, "tr.im": true,
+
+	// Regional / Specific
+	"clck.ru": true, "vk.cc": true, "rb.gy": true, "shorturl.at": true,
+}
 
 func getTLD(host string) string {
 	parts := strings.Split(host, ".")

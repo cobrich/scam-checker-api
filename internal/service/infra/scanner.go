@@ -20,6 +20,16 @@ var riskyCountries = map[string]int{
 	"Brazil":      10,
 	"Netherlands": 10,
 	"Turkey":      10,
+
+	// Francophone Africa (Common source of scams targeting France)
+	"Cote D'Ivoire": 25, // Ivory Coast - очень высокий риск для Франции
+	"Benin":         25,
+	"Cameroon":      20,
+	"Senegal":       15,
+	"Mali":          15,
+
+	// Other
+	"Nigeria": 20, "Vietnam": 10,
 }
 
 var bulletproofHosts = []string{
