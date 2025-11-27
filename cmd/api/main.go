@@ -140,6 +140,29 @@ func main() {
 	app.Use(recover.New()) // Восстановление после паники
 	app.Use(cors.New())    // Разрешаем запросы с браузера
 
+	// Auth
+	app.Use(func(c *fiber.Ctx) error {
+		// Читаем заголовок Authorization или параметр ?key=
+		key := c.Get("X-API-Key")
+		if key == "" {
+			key = c.Query("key")
+		}
+
+		// Сравниваем с секретным ключом из ENV
+		// В docker-compose.yml добавь: API_SECRET=my_super_secret_password
+		secret := os.Getenv("API_SECRET")
+		if secret == "" {
+			// Если секрет не задан, разрешаем всем (для тестов), но лучше паниковать
+			return c.Next()
+		}
+
+		if key != secret {
+			return c.Status(401).JSON(fiber.Map{"error": "Unauthorized"})
+		}
+
+		return c.Next()
+	})
+
 	// Custom Logger Middleware
 	app.Use(func(c *fiber.Ctx) error {
 		start := time.Now()
