@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/cobrich/scam-checker-api/internal/domain"
@@ -28,8 +29,10 @@ func NewCheckerService(repo *repository.ThreatRepository, whitelist *WhitelistSe
 func (s *CheckerService) Analyze(ctx context.Context, rawURL string, fullScan bool) (*domain.FullReport, error) {
 	// Инициализируем базовый отчет
 	report := &domain.FullReport{
-		Target:    rawURL,
-		RiskScore: 0,
+		Target:     rawURL,
+		RiskScore:  0,
+		Signals:    []string{},
+		Heuristics: []domain.RuleMatch{},
 	}
 
 	// 1. Whitelist (Мгновенный красивый выход)
@@ -57,6 +60,7 @@ func (s *CheckerService) Analyze(ctx context.Context, rawURL string, fullScan bo
 				Type:       t.Type,
 				FirstSeen:  t.CreatedAt.Format("2006-01-02"),
 			})
+			report.Signals = append(report.Signals, fmt.Sprintf("Listed in %s as %s", t.Source, t.Type))
 		}
 
 		if !fullScan {
@@ -135,12 +139,17 @@ func (s *CheckerService) Analyze(ctx context.Context, rawURL string, fullScan bo
 		report.Verdict = calculateVerdict(report.RiskScore)
 	}
 
+	s.generateSummary(report)
+
 	// Чистка JSON (чтобы не было null или пустых массивов)
 	if len(report.Heuristics) == 0 {
 		report.Heuristics = nil
 	}
 	if len(report.Blacklists) == 0 {
 		report.Blacklists = nil
+	}
+	if len(report.Signals) == 0 {
+		report.Signals = nil
 	}
 
 	return report, nil
@@ -166,4 +175,31 @@ func isTrustedASN(isp string) bool {
 		}
 	}
 	return false
+}
+
+// generateSummary заполняет Summary и Signals на основе правил
+func (s *CheckerService) generateSummary(report *domain.FullReport) {
+	summary := &domain.HeuristicSummary{}
+
+	for _, rule := range report.Heuristics {
+		// Добавляем имя правила в сигналы
+		report.Signals = append(report.Signals, rule.Name)
+
+		// Считаем статистику по баллам
+		switch {
+		case rule.Score >= 40:
+			summary.Critical++
+		case rule.Score >= 25:
+			summary.High++
+		case rule.Score >= 15:
+			summary.Medium++
+		default:
+			summary.Low++
+		}
+	}
+
+	// Если есть хоть какие-то угрозы, добавляем summary
+	if summary.Critical+summary.High+summary.Medium+summary.Low > 0 {
+		report.Summary = summary
+	}
 }
