@@ -1,4 +1,4 @@
-package meta_analyzer
+package metanalyzer
 
 import (
 	"encoding/base64"
@@ -193,6 +193,30 @@ func AnalyzeWithMeta(rawURL string, meta *AnalyzeMeta) ([]domain.RuleMatch, int)
 		addRule("Cloud Worker", "Cloud worker hosting")
 	}
 
+	// Правило для свежих доменов (Freshly Registered)
+	// Если мы знаем возраст (из Whois или SSL) и он меньше 14 дней
+	if meta != nil && meta.DomainAgeDays > 0 && meta.DomainAgeDays <= 14 {
+		addRule("Newly Registered Domain", "Domain is less than 2 weeks old")
+		// В конфиге весов этому правилу нужно дать Score: 30-40 (High)
+	}
+
+	// COMBO: Brand + Sensitive Keyword (login, secure, verify)
+	// Если есть инъекция бренда И слово "login" или "secure"
+	_, hasBrand := matchesMap["Brand Injection"]
+	_, hasFakeParent := matchesMap["Fake Parent Domain"]
+
+	hasAuthKey := false
+	for _, t := range tokens {
+		if t == "login" || t == "secure" || t == "verify" || t == "auth" {
+			hasAuthKey = true
+			break
+		}
+	}
+
+	if (hasBrand || hasFakeParent) && hasAuthKey {
+		addRule("Phishing Pattern", "Brand used with auth keywords")
+	}
+
 	// --- SCORING ---
 
 	categorySums := map[category]int{Critical: 0, High: 0, Medium: 0, Low: 0}
@@ -304,6 +328,8 @@ var ruleWeights = map[string]struct {
 	"IPFS Hosting":              {30, High},
 	"Cloud Worker":              {22, Medium},
 	"Hex Token":                 {18, Medium},
+	"Newly Registered Domain":   {40, High},
+	"Phishing Pattern":          {50, Critical},
 }
 
 var (
@@ -313,7 +339,12 @@ var (
 	base64Like         = regexp.MustCompile(`^[A-Za-z0-9+/]{20,}={0,2}$`)
 )
 
-var protectedBrands = []string{"google", "facebook", "instagram", "twitter", "paypal", "binance", "coinbase", "sberbank", "tinkoff", "alpha", "microsoft", "apple", "amazon", "netflix", "telegram", "whatsapp"}
+var protectedBrands = []string{
+	"google", "gmail", "facebook", "instagram", "twitter", "paypal",
+	"binance", "coinbase", "sberbank", "tinkoff", "alpha",
+	"microsoft", "office365", "apple", "icloud", "appleid", // <--- ДОБАВИЛ ICLOUD
+	"amazon", "netflix", "telegram", "whatsapp", "steam", "discord",
+}
 var suspiciousTLDs = map[string]bool{"xyz": true, "top": true, "gq": true, "tk": true, "ml": true, "cf": true, "ga": true, "buzz": true, "cn": true, "work": true, "click": true, "rest": true, "kim": true, "review": true, "country": true, "zip": true, "mov": true}
 var suspiciousKeywords = map[string]bool{"login": true, "secure": true, "account": true, "update": true, "verify": true, "wallet": true, "confirm": true, "auth": true, "support": true, "billing": true, "signin": true, "recover": true, "unlock": true, "bonus": true, "giveaway": true, "free": true, "airdrop": true, "claim": true}
 var urlShorteners = map[string]bool{"bit.ly": true, "t.co": true, "goo.gl": true, "tinyurl.com": true, "is.gd": true, "cutt.ly": true, "shorte.st": true, "clck.ru": true, "rb.gy": true}

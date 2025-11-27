@@ -19,6 +19,9 @@ type FullReport struct {
 
 	// 3. Технические данные (Инфраструктура)
 	Infrastructure *GeoNetInfo `json:"infrastructure,omitempty"`
+
+	// 4. Данные WHOIS (НОВОЕ)
+	Whois *WhoisInfo `json:"whois,omitempty"`
 }
 
 type HeuristicSummary struct {
@@ -75,11 +78,18 @@ type DNSDetails struct {
 }
 
 type HTTPDetails struct {
-	StatusCode  int    `json:"status_code"`
-	Title       string `json:"page_title"`
-	ContentType string `json:"content_type,omitempty"`
+	StatusCode       int      `json:"status_code"`
+	Title            string   `json:"page_title"`
+	ContentType      string   `json:"content_type,omitempty"`
 	RedirectChain    []string `json:"redirect_chain,omitempty"` // История редиректов
 	HasPasswordField bool     `json:"has_password_field"`       // Нашли ли поле ввода пароля?
 	HasCreditCard    bool     `json:"has_credit_card_field"`    // Нашли ли поле карты?
 	IsSuspiciousJS   bool     `json:"is_suspicious_js"`         // Обфусцированный JS?
+}
+
+type WhoisInfo struct {
+	Registrar     string `json:"registrar,omitempty"`    // GoDaddy, Namecheap...
+	CreatedDate   string `json:"created_date,omitempty"` // 2024-01-01
+	ExpiresDate   string `json:"expires_date,omitempty"`
+	DomainAgeDays int    `json:"domain_age_days"` // Самое важное поле!
 }

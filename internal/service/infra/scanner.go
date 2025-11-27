@@ -14,7 +14,7 @@ import (
 
 var riskyCountries = map[string]int{
 	"Russia":      15,
-	"China":       20,
+	"China":       15,
 	"Iran":        30,
 	"North Korea": 50,
 	"Brazil":      10,
@@ -24,12 +24,12 @@ var riskyCountries = map[string]int{
 
 var bulletproofHosts = []string{
 	"FlokiNET", "Shinjiru", "AbeloHost", "Offshore", "AnonymousSpeech",
-	"Njalla", "Privex", "OrangeWebsite",
+	"Njalla", "Privex", "OrangeWebsite", "PrivateLayer", "Virtual Systems",
 }
 
 var cloudProviders = []string{
 	"DigitalOcean", "Hetzner", "OVH", "Namecheap", "Hostinger",
-	"Choopa", "Vultr", "Google LLC", "Amazon.com",
+	"Choopa", "Vultr", "Google LLC", "Amazon.com", "Cloudflare",
 }
 
 type InfraService struct {
@@ -90,17 +90,17 @@ func (s *InfraService) Scan(ctx context.Context, rawURL string) (*domain.GeoNetI
 		score += sslScore
 		rules = append(rules, sslRules...)
 	} else {
-		// Если SSL нет, но сайт жив (HTTP), можно добавить штраф
-		score += 10
-		rules = append(rules, domain.RuleMatch{Name: "No HTTPS", Desc: "No secure connection", Score: 10})
+		// Если SSL нет, но сайт жив (HTTP) - это плохо, но не фатально
+		score += 5
+		rules = append(rules, domain.RuleMatch{Name: "No HTTPS", Desc: "No secure connection", Score: 5})
 	}
 
 	// 4. DNS Details (MX)
 	info.DNS = s.getDNSDetails(domainName)
-
+	// No MX - это слабый сигнал (многие лендинги не имеют почты)
 	if info.DNS == nil || len(info.DNS.MXRecords) == 0 {
-		score += 15
-		rules = append(rules, domain.RuleMatch{Name: "No MX Records", Desc: "Domain cannot receive emails", Score: 15})
+		score += 5
+		rules = append(rules, domain.RuleMatch{Name: "No MX Records", Desc: "Domain cannot receive emails", Score: 5})
 	}
 
 	// 5. HTTP Content Analysis (НОВОЕ)
@@ -112,9 +112,10 @@ func (s *InfraService) Scan(ctx context.Context, rawURL string) (*domain.GeoNetI
 
 		// Если нашли поле пароля на сайте без HTTPS или с плохим доменом - повышаем риск
 		if httpInfo.HasPasswordField {
-			// Если сайт в базе фишинга или эвристика сработала - это критично
-			// Здесь просто добавляем баллы
-			score += 10
+			// Поле пароля на сайте без HTTPS или с плохой репутацией - это риск
+			// Но само по себе - нет.
+			// Добавим правило, но с малым весом, пусть Analyzer решает
+			rules = append(rules, domain.RuleMatch{Name: "Password Field", Desc: "Input type password", Score: 0})
 		}
 	}
 
@@ -189,10 +190,12 @@ func (s *InfraService) analyzeHosting(geo *domain.GeoLocation) (int, []domain.Ru
 	}
 
 	// 2. Cloud Hosting
+	// Cloud Hosting - больше НЕ штрафуем (это норма)
+	// Оставляем правило с 0 score для информации
 	for _, p := range cloudProviders {
 		if strings.Contains(geo.ISP, p) {
-			score += 5
-			rules = append(rules, domain.RuleMatch{Name: "Cloud Hosting", Desc: geo.ISP, Score: 5})
+			// score += 5
+			rules = append(rules, domain.RuleMatch{Name: "Cloud Hosting", Desc: geo.ISP, Score: 0})
 			break
 		}
 	}
@@ -239,8 +242,8 @@ func (s *InfraService) analyzeSSL(ssl *domain.SSLInfo) (int, []domain.RuleMatch)
 	var rules []domain.RuleMatch
 
 	if !ssl.IsHTTPS {
-		score += 10
-		rules = append(rules, domain.RuleMatch{Name: "No HTTPS", Desc: "No secure connection", Score: 10})
+		score += 5
+		rules = append(rules, domain.RuleMatch{Name: "No HTTPS", Desc: "No secure connection", Score: 5})
 		return score, rules
 	}
 
@@ -250,18 +253,21 @@ func (s *InfraService) analyzeSSL(ssl *domain.SSLInfo) (int, []domain.RuleMatch)
 	}
 
 	if ssl.AgeDays < 1 {
-		score += 50
-		rules = append(rules, domain.RuleMatch{Name: "New SSL", Desc: "Created today (<24h)", Score: 50})
+		score += 30
+		rules = append(rules, domain.RuleMatch{Name: "New SSL", Desc: "Created today (<24h)", Score: 30})
+	} else if ssl.AgeDays < 2 {
+		score += 10
+		rules = append(rules, domain.RuleMatch{Name: "Fresh SSL", Desc: "Created recently", Score: 10})
 	} else if ssl.AgeDays < 7 {
-		score += 20
-		rules = append(rules, domain.RuleMatch{Name: "Fresh SSL", Desc: "Created this week", Score: 20})
+		score += 5
+		rules = append(rules, domain.RuleMatch{Name: "Fresh SSL", Desc: "Created this week", Score: 5})
 	}
 
 	// Проверка на бесплатные сертификаты на новых доменах
-	isFreeCert := strings.Contains(ssl.Issuer, "Let's Encrypt") || strings.Contains(ssl.Issuer, "ZeroSSL") || strings.Contains(ssl.Issuer, "Google Trust Services")
+	isFreeCert := strings.Contains(ssl.Issuer, "Let's Encrypt") || strings.Contains(ssl.Issuer, "ZeroSSL") // || strings.Contains(ssl.Issuer, "Google Trust Services")
 	if isFreeCert && ssl.AgeDays < 14 {
-		score += 10
-		rules = append(rules, domain.RuleMatch{Name: "Free SSL on New Site", Desc: "Short-lived free cert", Score: 10})
+		score += 5
+		rules = append(rules, domain.RuleMatch{Name: "Free SSL on New Site", Desc: "Short-lived free cert", Score: 5})
 	}
 
 	return score, rules

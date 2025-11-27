@@ -9,13 +9,15 @@ import (
 	"github.com/cobrich/scam-checker-api/internal/pkg/utils"
 	"github.com/cobrich/scam-checker-api/internal/repository"
 	"github.com/cobrich/scam-checker-api/internal/service/infra"
-	meta_analyzer "github.com/cobrich/scam-checker-api/internal/service/meta-analyzer"
+	metanalyzer "github.com/cobrich/scam-checker-api/internal/service/meta-analyzer"
+	"github.com/cobrich/scam-checker-api/internal/service/whois"
 )
 
 type CheckerService struct {
 	repo      *repository.ThreatRepository
 	whitelist *WhitelistService
 	infra     *infra.InfraService
+	whois     *whois.WhoisService
 }
 
 func NewCheckerService(repo *repository.ThreatRepository, whitelist *WhitelistService, infra *infra.InfraService) *CheckerService {
@@ -23,6 +25,7 @@ func NewCheckerService(repo *repository.ThreatRepository, whitelist *WhitelistSe
 		repo:      repo,
 		whitelist: whitelist,
 		infra:     infra,
+		whois:     whois.NewWhoisService(),
 	}
 }
 
@@ -84,7 +87,7 @@ func (s *CheckerService) Analyze(ctx context.Context, rawURL string, fullScan bo
 	domainName, _ := utils.ExtractHostname(rawURL)
 
 	// Подготовка метаданных для анализатора
-	meta := &meta_analyzer.AnalyzeMeta{
+	meta := &metanalyzer.AnalyzeMeta{
 		IsWhitelisted: false,
 		IsBlacklisted: isBlacklisted,
 		DomainAgeDays: 0,
@@ -92,30 +95,58 @@ func (s *CheckerService) Analyze(ctx context.Context, rawURL string, fullScan bo
 	}
 
 	if fullScan && domainName != "" {
+		// Запрашиваем Whois. Это может занять 1-2 секунды.
+		whoisInfo := s.whois.GetInfo(ctx, domainName)
+		report.Whois = whoisInfo
+
+		if whoisInfo != nil {
+			meta.DomainAgeDays = whoisInfo.DomainAgeDays // Передаем в анализатор!
+		}
+
 		// Вызываем сервис infra
 		infraInfo, infraRules, infraScore := s.infra.Scan(ctx, rawURL)
 		report.Infrastructure = infraInfo
 
-		// Добавляем правила от инфраструктуры в общий список угроз
+		// Заполняем мету данными из инфраструктуры
+		if infraInfo.Geo != nil {
+			meta.IsTrustedASN = isTrustedASN(infraInfo.Geo.ISP)
+		}
+		// Если Whois не сработал, пробуем взять возраст из SSL (как запасной вариант)
+		if meta.DomainAgeDays == 0 && infraInfo.SSL != nil {
+			meta.DomainAgeDays = infraInfo.SSL.AgeDays
+		}
+
+		// --- ЛОГИКА КОРРЕКЦИИ ИНФРАСТРУКТУРЫ (НОВОЕ) ---
+
+		// 1. Если домен старый (> 1 года), технические огрехи (Fresh SSL, No MX) менее важны.
+		// Снижаем риск от инфраструктуры на 50%.
+		if meta.DomainAgeDays > 365 {
+			infraScore = int(float64(infraScore) * 0.5)
+		}
+
+		// 2. Если хостинг доверенный (Cloudflare, Google), снижаем еще.
+		if meta.IsTrustedASN {
+			infraScore -= 10
+		}
+
+		// Защита от отрицательных чисел
+		if infraScore < 0 {
+			infraScore = 0
+		}
+
+		// Добавляем правила
 		if len(infraRules) > 0 {
 			report.Heuristics = append(report.Heuristics, infraRules...)
 		}
 
+		// Добавляем скорректированный балл
 		if report.RiskScore < 100 {
 			report.RiskScore += infraScore
-		}
-
-		// Заполняем мету данными из инфраструктуры
-		if infraInfo.SSL != nil {
-			meta.DomainAgeDays = infraInfo.SSL.AgeDays
-		}
-		if infraInfo.Geo != nil {
-			meta.IsTrustedASN = isTrustedASN(infraInfo.Geo.ISP)
 		}
 	}
 
 	// 4. Analyzer (Heuristics) - Теперь вызываем в конце с полными данными
-	heuristicRules, heuristicScore := meta_analyzer.AnalyzeWithMeta(rawURL, meta)
+	heuristicRules, heuristicScore := metanalyzer.AnalyzeWithMeta(rawURL, meta)
 
 	if len(heuristicRules) > 0 {
 		report.Heuristics = append(report.Heuristics, heuristicRules...)
