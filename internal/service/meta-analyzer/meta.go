@@ -85,9 +85,13 @@ func AnalyzeWithMeta(rawURL string, meta *AnalyzeMeta) ([]domain.RuleMatch, int)
 	}
 
 	for _, token := range tokens {
-		if len(token) < 4 { continue }
+		if len(token) < 4 {
+			continue
+		}
 		for _, b := range protectedBrands {
-			if token == b { continue }
+			if token == b {
+				continue
+			}
 			dist := levenshtein.ComputeDistance(token, b)
 			if dist == 1 || (len(b) >= 6 && dist <= 2) {
 				addRule("Typosquatting", "Token '"+token+"' resembles '"+b+"'")
@@ -106,7 +110,9 @@ func AnalyzeWithMeta(rawURL string, meta *AnalyzeMeta) ([]domain.RuleMatch, int)
 		if strings.Contains(cleanHost, brandDot) {
 			if strings.HasPrefix(cleanHost, brandDot) {
 				rest := strings.TrimPrefix(cleanHost, brandDot)
-				if !strings.Contains(rest, ".") { continue }
+				if !strings.Contains(rest, ".") {
+					continue
+				}
 			}
 			addRule("Fake Parent Domain", "Brand '"+b+"' appears as parent/subdomain")
 		}
@@ -217,21 +223,31 @@ func AnalyzeWithMeta(rawURL string, meta *AnalyzeMeta) ([]domain.RuleMatch, int)
 	}
 
 	multiplier := 1.0
-	if categorySums[Critical] >= 50 { multiplier += 0.20 }
-	if categorySums[Critical] >= 100 { multiplier += 0.30 }
-	
+	if categorySums[Critical] >= 50 {
+		multiplier += 0.20
+	}
+	if categorySums[Critical] >= 100 {
+		multiplier += 0.30
+	}
+
 	_, hasTypos := matchesMap["Typosquatting"]
 	_, hasPuny := matchesMap["Punycode"]
-	if hasTypos && hasPuny { multiplier += 0.25 }
+	if hasTypos && hasPuny {
+		multiplier += 0.25
+	}
 
-	critPart := float64(categorySums[Critical]) * 0.50
-	highPart := float64(categorySums[High]) * 0.30
-	medPart := float64(categorySums[Medium]) * 0.15
-	lowPart := float64(categorySums[Low]) * 0.05
+	raw := float64(categorySums[Critical])*1.5 + // Критические усиливаем
+		float64(categorySums[High])*1.0 + // High считаем полностью
+		float64(categorySums[Medium])*0.8 + // Medium чуть снижаем (шум)
+		float64(categorySums[Low])*0.5 // Low снижаем в 2 раза
 
-	raw := (critPart + highPart + medPart + lowPart) * multiplier
+	// Применяем мультипликатор
+	raw = raw * multiplier
+
 	score := int(raw)
-	if score > 100 { score = 100 }
+	if score > 100 {
+		score = 100
+	}
 
 	// Final Anti-FP
 	if meta != nil && meta.DomainAgeDays > 365 && categorySums[Critical]+categorySums[High] == 0 {
@@ -239,7 +255,9 @@ func AnalyzeWithMeta(rawURL string, meta *AnalyzeMeta) ([]domain.RuleMatch, int)
 	}
 
 	sort.SliceStable(matches, func(i, j int) bool { return matches[i].Score > matches[j].Score })
-	if len(matches) > 50 { matches = matches[:50] }
+	if len(matches) > 50 {
+		matches = matches[:50]
+	}
 
 	return matches, score
 }
@@ -247,6 +265,7 @@ func AnalyzeWithMeta(rawURL string, meta *AnalyzeMeta) ([]domain.RuleMatch, int)
 // --- CONFIG & HELPERS ---
 
 type category string
+
 const (
 	Critical category = "critical"
 	High     category = "high"
@@ -258,33 +277,33 @@ var ruleWeights = map[string]struct {
 	Score    int
 	Category category
 }{
-	"Insecure Protocol":       {8, Low},
-	"Unicode Spoof":           {60, Critical},
-	"Punycode":                {45, Critical},
-	"Suspicious Keyword":      {8, Low},
-	"Suspicious Path Keyword": {10, Medium},
-	"Typosquatting":           {55, Critical},
-	"Brand Injection":         {40, High},
-	"Fake Parent Domain":      {65, Critical},
-	"High Entropy Domain":     {8, Low},
-	"High Entropy Token":      {12, Medium},
-	"Long Domain":             {10, Low},
-	"Oversized Token":         {15, Medium},
-	"Excessive Hyphens":       {10, Low},
-	"Deep Subdomain":          {12, Medium},
-	"IP Hostname":             {30, High},
-	"Suspicious TLD":          {8, Low},
-	"Userinfo Abuse":          {40, High},
-	"Suspicious Port":         {25, High},
-	"Encoded Payload":         {20, Medium},
-	"Hex Payload":             {18, Medium},
-	"Open Redirect":           {30, High},
+	"Insecure Protocol":         {8, Low},
+	"Unicode Spoof":             {60, Critical},
+	"Punycode":                  {45, Critical},
+	"Suspicious Keyword":        {8, Low},
+	"Suspicious Path Keyword":   {10, Medium},
+	"Typosquatting":             {55, Critical},
+	"Brand Injection":           {40, High},
+	"Fake Parent Domain":        {65, Critical},
+	"High Entropy Domain":       {8, Low},
+	"High Entropy Token":        {12, Medium},
+	"Long Domain":               {10, Low},
+	"Oversized Token":           {15, Medium},
+	"Excessive Hyphens":         {10, Low},
+	"Deep Subdomain":            {12, Medium},
+	"IP Hostname":               {40, Critical},
+	"Suspicious TLD":            {8, Low},
+	"Userinfo Abuse":            {40, High},
+	"Suspicious Port":           {25, High},
+	"Encoded Payload":           {20, Medium},
+	"Hex Payload":               {18, Medium},
+	"Open Redirect":             {30, High},
 	"Sensitive Query Parameter": {12, Medium},
-	"Obfuscated URL":          {18, Medium},
-	"URL Shortener":           {25, Medium},
-	"IPFS Hosting":            {30, High},
-	"Cloud Worker":            {22, Medium},
-	"Hex Token":               {18, Medium},
+	"Obfuscated URL":            {18, Medium},
+	"URL Shortener":             {25, Medium},
+	"IPFS Hosting":              {30, High},
+	"Cloud Worker":              {22, Medium},
+	"Hex Token":                 {18, Medium},
 }
 
 var (
@@ -301,22 +320,37 @@ var urlShorteners = map[string]bool{"bit.ly": true, "t.co": true, "goo.gl": true
 
 func getTLD(host string) string {
 	parts := strings.Split(host, ".")
-	if len(parts) < 2 { return "" }
+	if len(parts) < 2 {
+		return ""
+	}
 	return parts[len(parts)-1]
 }
 func calculateEntropy(s string) float64 {
-	if len(s) == 0 { return 0 }
+	if len(s) == 0 {
+		return 0
+	}
 	freq := map[rune]float64{}
-	for _, r := range s { freq[r]++ }
+	for _, r := range s {
+		freq[r]++
+	}
 	var entropy float64
 	l := float64(len(s))
-	for _, c := range freq { p := c / l; entropy -= p * math.Log2(p) }
+	for _, c := range freq {
+		p := c / l
+		entropy -= p * math.Log2(p)
+	}
 	return entropy
 }
 func isIPAddress(host string) bool { return ipRegex.MatchString(host) }
 func isPrintable(data []byte) bool {
-	if len(data) == 0 { return false }
+	if len(data) == 0 {
+		return false
+	}
 	printableCount := 0
-	for _, b := range data { if (b >= 32 && b <= 126) || b == '\n' || b == '\r' || b == '\t' { printableCount++ } }
+	for _, b := range data {
+		if (b >= 32 && b <= 126) || b == '\n' || b == '\r' || b == '\t' {
+			printableCount++
+		}
+	}
 	return float64(printableCount)/float64(len(data)) > 0.7
 }
