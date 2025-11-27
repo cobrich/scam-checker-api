@@ -345,6 +345,6 @@ func isPrintable(data []byte) bool {
 			printableCount++
 		}
 	}
-	// Если более 85% символов печатные - считаем текстом
-	return float64(printableCount)/float64(len(data)) > 0.85
+	// Если более 70% символов печатные - считаем текстом
+	return float64(printableCount)/float64(len(data)) > 0.7
 }
