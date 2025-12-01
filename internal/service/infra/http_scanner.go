@@ -27,9 +27,11 @@ func (s *InfraService) scanHTTP(ctx context.Context, urlStr string) (*domain.HTT
 
 	// Настраиваем клиент с отслеживанием редиректов
 	client := &http.Client{
-		Timeout: 10 * time.Second,
+		Timeout: 2 * time.Second,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // Игнорируем ошибки SSL при скачивании контента
+			TLSHandshakeTimeout:   700 * time.Millisecond,
+			ResponseHeaderTimeout: 1 * time.Second,                       // Ждем первый байт 1 сек
+			TLSClientConfig:       &tls.Config{InsecureSkipVerify: true}, // Игнорируем ошибки SSL при скачивании контента
 		},
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			// Записываем каждый шаг редиректа

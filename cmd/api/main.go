@@ -107,6 +107,10 @@ func main() {
 	urlHausService := fetcher.NewUrlHausService(threatRepo)
 	openphishService := fetcher.NewOpenPhishService(threatRepo)
 	threatfoxService := fetcher.NewThreatFoxService(threatRepo)
+	githubPhishService := fetcher.NewGithubPhishingService(threatRepo)
+	vxVaultService := fetcher.NewVXVaultService(threatRepo)
+	stopSpamService := fetcher.NewStopForumSpamService(threatRepo)
+	phishingArmyService := fetcher.NewPhishingArmyService(threatRepo)
 
 	if shouldRunFetchers {
 		slog.Info("Запуск планировщика задач...")
@@ -142,6 +146,26 @@ func main() {
 			runJob("ThreatFox", threatfoxService.Run)
 		})
 
+		// GitHub Phishing (Каждые 2 часа)
+		c.AddFunc("@every 2h", func() {
+			runJob("GitHub Phishing", githubPhishService.Run)
+		})
+
+		// VX Vault (Каждый час)
+		c.AddFunc("@every 1h", func() {
+			runJob("VX Vault", vxVaultService.Run)
+		})
+
+		// StopForumSpam (Раз в день - тяжелый файл)
+		c.AddFunc("@daily", func() {
+			runJob("StopForumSpam", stopSpamService.Run)
+		})
+
+		// Phishing Army (Каждые 4 часа)
+		c.AddFunc("@every 4h", func() {
+			runJob("Phishing Army", phishingArmyService.Run)
+		})
+
 		c.Start()
 
 		// ВАЖНО: Запускаем обновление прямо сейчас (при старте), чтобы не ждать час
@@ -150,7 +174,19 @@ func main() {
 		go runJob("URLhaus (Init)", urlHausService.Run)
 		go runJob("OpenPhish (Init)", openphishService.Run)
 		go runJob("ThreatFox (Init)", threatfoxService.Run)
+		go runJob("Github Phishing (Init)", githubPhishService.Run)
+		go runJob("VX Vault (Init)", vxVaultService.Run)
+		go runJob("StopForumSpam (Init)", stopSpamService.Run)
+		go runJob("Phishing Army (Init)", phishingArmyService.Run)
 	}
+
+	// For separate testing
+	// go func() {
+	// 	if err := stopSpamService.Run(ctx); err != nil {
+	// 		slog.Error("stopSpamService error:",
+	// 			"error", err)
+	// 	}
+	// }()
 
 	// 7. Настройка Web Server
 	app := fiber.New(fiber.Config{

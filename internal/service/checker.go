@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/cobrich/scam-checker-api/internal/domain"
 	"github.com/cobrich/scam-checker-api/internal/pkg/utils"
@@ -98,15 +99,23 @@ func (s *CheckerService) Analyze(ctx context.Context, rawURL string, fullScan bo
 
 	if fullScan && domainName != "" {
 		// Запрашиваем Whois. Это может занять 1-2 секунды.
-		whoisInfo := s.whois.GetInfo(ctx, domainName)
+		whoisCtx, wCancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+		defer wCancel()
+		whoisInfo := s.whois.GetInfo(whoisCtx, domainName)
 		report.Whois = whoisInfo
 
 		if whoisInfo != nil {
 			meta.DomainAgeDays = whoisInfo.DomainAgeDays // Передаем в анализатор!
 		}
 
+		// Ставим 6 секунд.
+		// Если DNS (2с) + HTTP (4с) будут работать последовательно - мы не успеем.
+		// Но они работают ПАРАЛЛЕЛЬНО (в scanner.go), поэтому 6 секунд хватит с запасом.
+		infraCtx, cancel := context.WithTimeout(ctx, 3500*time.Millisecond)
+		defer cancel()
+
 		// Вызываем сервис infra
-		infraInfo, infraRules, infraScore := s.infra.Scan(ctx, rawURL)
+		infraInfo, infraRules, infraScore := s.infra.Scan(infraCtx, rawURL)
 		report.Infrastructure = infraInfo
 
 		// Заполняем мету данными из инфраструктуры

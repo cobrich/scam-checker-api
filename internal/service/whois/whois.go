@@ -18,8 +18,38 @@ func NewWhoisService() *WhoisService {
 
 // GetInfo делает запрос к WHOIS серверу и парсит ответ
 func (s *WhoisService) GetInfo(ctx context.Context, domainName string) *domain.WhoisInfo {
+		// Создаем канал для результата
+	type result struct {
+		raw string
+		err error
+	}
+	ch := make(chan result, 1)
+
+	// Запускаем WHOIS в горутине
+	go func() {
+		raw, err := whois.Whois(domainName)
+		ch <- result{raw, err}
+	}()
+
+	var raw string
+	var err error
+
+	// Ждем результат ИЛИ таймаут 3 секунды
+	select {
+	case res := <-ch:
+		raw = res.raw
+		err = res.err
+	case <-time.After(3 * time.Second):
+		return nil // Таймаут WHOIS
+	case <-ctx.Done():
+		return nil // Таймаут родительского контекста
+	}
+
+	if err != nil {
+		return nil
+	}
 	// 1. Raw запрос
-	raw, err := whois.Whois(domainName)
+	raw, err = whois.Whois(domainName)
 	if err != nil {
 		return nil
 	}

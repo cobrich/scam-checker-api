@@ -173,3 +173,74 @@ INSERT INTO config_hosting (name_pattern, score, type) VALUES
 ('Amazon.com', 5, 'cloud'), ('Cloudflare', 0, 'cloud')
 -- Cloudflare 0, т.к. слишком много легитима
 ;
+
+
+
+
+
+
+
+
+
+
+{
+  "target": "http://zygospor.ru",
+  "verdict": "Dangerous",
+  "risk_score": 100,
+  "reason": "Found in Blacklist",
+  "summary": {
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 2
+  },
+  "signals": [
+    "Listed in stopforumspam as spam",
+    "No HTTPS",
+    "Insecure Protocol"
+  ],
+  "blacklists": [
+    {
+      "source": "stopforumspam",
+      "ext_id": "",
+      "type": "spam",
+      "first_seen": "2025-12-01"
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "No HTTPS",
+      "desc": "No secure connection",
+      "score": 5
+    },
+    {
+      "name": "Insecure Protocol",
+      "desc": "Non-HTTPS scheme",
+      "score": 10
+    }
+  ],
+  "infrastructure": {
+    "status": "Online",
+    "ip": "5.230.123.239",
+    "geolocation": {
+      "country": "Germany",
+      "isp": "GHOSTnet GmbH",
+      "asn": 12586,
+      "organization": "GHOSTnet GmbH"
+    },
+    "dns": {
+      "mx_records": [
+        "mail.zygospor.ru."
+      ],
+      "ns_records": [
+        "ns1.zygospor.ru."
+      ]
+    }
+  },
+  "whois": {
+    "registrar": "MAXNAME-RU",
+    "created_date": "2023-09-25T18:37:09Z",
+    "expires_date": "2026-09-25T18:37:09Z",
+    "domain_age_days": 797
+  }
+}

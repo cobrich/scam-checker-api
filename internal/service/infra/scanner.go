@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cobrich/scam-checker-api/internal/domain"
@@ -30,11 +31,20 @@ func (s *InfraService) Scan(ctx context.Context, rawURL string) (*domain.GeoNetI
 	var rules []domain.RuleMatch
 	score := 0
 
+	// Мьютекс для безопасной записи в rules и score из разных горутин
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
 	// 1. DNS Resolve
 	// Используем LookupIP, чтобы проверить, жив ли сайт
+	// Создаем отдельный контекст для DNS. Максимум 2 секунды.
+	dnsCtx, dnsCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer dnsCancel()
+
 	start := time.Now()
-	ips, err := net.LookupIP(domainName)
+	ips, err := net.DefaultResolver.LookupIP(dnsCtx, "ip", domainName)
 	resolveTime := time.Since(start)
+
 	if err != nil || len(ips) == 0 {
 		return info, rules, score // Сайт мертв
 	}
@@ -62,65 +72,90 @@ func (s *InfraService) Scan(ctx context.Context, rawURL string) (*domain.GeoNetI
 	rules = append(rules, hRules...)
 
 	// 3. SSL
-	info.SSL = s.getSSLDetails(domainName)
+	// Task A: SSL Check
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		ssl := s.getSSLDetails(domainName)
 
-	// Анализируем SSL (возвращает баллы и правила)
+		mu.Lock()
+		defer mu.Unlock()
 
-	if info.SSL != nil { // <--- ПРОВЕРКА НА NIL
-		sslScore, sslRules := s.analyzeSSL(info.SSL)
-		score += sslScore
-		rules = append(rules, sslRules...)
-	} else {
-		// Если SSL нет, но сайт жив (HTTP) - это плохо, но не фатально
-		score += 5
-		rules = append(rules, domain.RuleMatch{Name: "No HTTPS", Desc: "No secure connection", Score: 5})
-	}
+		info.SSL = ssl
+		if ssl != nil {
+			sScore, sRules := s.analyzeSSL(ssl)
+			score += sScore
+			rules = append(rules, sRules...)
+		} else {
+			score += 5
+			rules = append(rules, domain.RuleMatch{Name: "No HTTPS", Desc: "No secure connection", Score: 5})
+		}
+	}()
 
 	// 4. DNS Details (MX)
-	info.DNS = s.getDNSDetails(domainName)
-	// No MX - это слабый сигнал (многие лендинги не имеют почты)
-	if info.DNS == nil || len(info.DNS.MXRecords) == 0 {
-		score += 5
-		rules = append(rules, domain.RuleMatch{Name: "No MX Records", Desc: "Domain cannot receive emails", Score: 5})
-	}
+	// Task B: DNS Details (MX/NS)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		// Передаем контекст для таймаута!
+		dns := s.getDNSDetails(dnsCtx, domainName)
+
+		mu.Lock()
+		defer mu.Unlock()
+
+		info.DNS = dns
+		if dns == nil || len(dns.MXRecords) == 0 {
+			score += 5
+			rules = append(rules, domain.RuleMatch{Name: "No MX Records", Desc: "Domain cannot receive emails", Score: 5})
+		}
+	}()
 
 	// 5. HTTP Content Analysis (НОВОЕ)
-	// Передаем domainName (или лучше полный URL, если он есть в контексте, но пока domainName)
-	httpInfo, httpRules := s.scanHTTP(ctx, rawURL)
-	if httpInfo != nil {
-		info.HTTP = httpInfo
-		rules = append(rules, httpRules...)
+	// Task C: HTTP Scan
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		httpInfo, httpRules := s.scanHTTP(ctx, rawURL)
 
-		// Если нашли поле пароля на сайте без HTTPS или с плохим доменом - повышаем риск
-		if httpInfo.HasPasswordField {
-			// Поле пароля на сайте без HTTPS или с плохой репутацией - это риск
-			// Но само по себе - нет.
-			// Добавим правило, но с малым весом, пусть Analyzer решает
-			rules = append(rules, domain.RuleMatch{Name: "Password Field", Desc: "Input type password", Score: 0})
+		mu.Lock()
+		defer mu.Unlock()
+
+		if httpInfo != nil {
+			info.HTTP = httpInfo
+			rules = append(rules, httpRules...)
 		}
-	}
+	}()
+
+	// Ждем всех
+	wg.Wait()
 
 	return info, rules, score
 }
 
 // --- Вспомогательные методы ---
 
-func (s *InfraService) getDNSDetails(domainName string) *domain.DNSDetails {
+func (s *InfraService) getDNSDetails(ctx context.Context, domainName string) *domain.DNSDetails {
 	details := &domain.DNSDetails{}
 	found := false
 
-	mxRecords, _ := net.LookupMX(domainName)
-	for _, mx := range mxRecords {
-		details.MXRecords = append(details.MXRecords, mx.Host)
-		found = true
+	// Используем Resolver с контекстом, чтобы не зависать на MX
+	resolver := net.DefaultResolver
+
+	// MX
+	if mxs, err := resolver.LookupMX(ctx, domainName); err == nil {
+		for _, mx := range mxs {
+			details.MXRecords = append(details.MXRecords, mx.Host)
+			found = true
+		}
 	}
 
-	nsRecords, _ := net.LookupNS(domainName)
-	for _, ns := range nsRecords {
-		details.NSRecords = append(details.NSRecords, ns.Host)
-		found = true
+	// NS
+	if nss, err := resolver.LookupNS(ctx, domainName); err == nil {
+		for _, ns := range nss {
+			details.NSRecords = append(details.NSRecords, ns.Host)
+			found = true
+		}
 	}
-
 	if !found {
 		return nil
 	}
@@ -195,7 +230,7 @@ func (s *InfraService) analyzeHosting(geo *domain.GeoLocation) (int, []domain.Ru
 func (s *InfraService) getSSLDetails(domainName string) *domain.SSLInfo {
 	info := &domain.SSLInfo{Valid: false, IsHTTPS: false}
 
-	dialer := &net.Dialer{Timeout: 3 * time.Second}
+	dialer := &net.Dialer{Timeout: 1 * time.Second}
 	// InsecureSkipVerify: true, потому что нам важно получить инфу о сертификате, даже если он просрочен
 	conn, err := tls.DialWithDialer(dialer, "tcp", domainName+":443", &tls.Config{InsecureSkipVerify: true})
 
