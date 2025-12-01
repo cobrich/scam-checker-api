@@ -10,6 +10,7 @@ require (
 	github.com/likexian/whois v1.15.6
 	github.com/likexian/whois-parser v1.24.20
 	github.com/oschwald/geoip2-golang v1.13.0
+	github.com/robfig/cron/v3 v3.0.1
 )
 
 require (

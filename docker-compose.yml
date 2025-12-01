@@ -13,6 +13,10 @@ services:
       # Используем имя контейнера (scam-checker-db) вместо сервиса (db)
       - DATABASE_URL=postgres://user:password@scam-checker-db:5432/scam_db
       - APP_PORT=:8080
+      # НОВОЕ: Секретный ключ для доступа к API (придумай свой)
+      # - API_SECRET=ahahahah
+      # НОВОЕ: Флаг для запуска фоновых обновлений (PhishTank, URLhaus и т.д.)
+      - RUN_FETCHERS=true
     restart: always
 
   db:

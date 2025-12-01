@@ -21,6 +21,8 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/oschwald/geoip2-golang"
+
+	"github.com/robfig/cron/v3"
 )
 
 func main() {
@@ -101,41 +103,53 @@ func main() {
 	// 6. Запуск Фетчеров
 	shouldRunFetchers := cfg.EnableFetchers == "true"
 
-	if shouldRunFetchers {
-		slog.Info("Запуск фоновых обновлений баз...")
-		phishService := fetcher.NewPhishTankService(threatRepo)
-		urlHausService := fetcher.NewUrlHausService(threatRepo)
-		openphishService := fetcher.NewOpenPhishService(threatRepo)
-		threatfoxService := fetcher.NewThreatFoxService(threatRepo)
+	phishService := fetcher.NewPhishTankService(threatRepo)
+	urlHausService := fetcher.NewUrlHausService(threatRepo)
+	openphishService := fetcher.NewOpenPhishService(threatRepo)
+	threatfoxService := fetcher.NewThreatFoxService(threatRepo)
 
-		go func() {
-			if err := phishService.Run(ctx); err != nil {
-				slog.Info("Ошибка фетчера: %v",
-					"error", err,
-				)
+	if shouldRunFetchers {
+		slog.Info("Запуск планировщика задач...")
+
+		c := cron.New()
+
+		runJob := func(name string, job func(context.Context) error) {
+			slog.Info("Запуск задачи", "job", name)
+			if err := job(context.Background()); err != nil {
+				slog.Error("Ошибка задачи", "job", name, "error", err)
+			} else {
+				slog.Info("Задача выполнена успешно", "job", name)
 			}
-		}()
-		go func() {
-			if err := urlHausService.Run(ctx); err != nil {
-				slog.Info("Ошибка фетчера: %v",
-					"error", err,
-				)
-			}
-		}()
-		go func() {
-			if err := openphishService.Run(ctx); err != nil {
-				slog.Info("Ошибка фетчера: %v",
-					"error", err,
-				)
-			}
-		}()
-		go func() {
-			if err := threatfoxService.Run(ctx); err != nil {
-				slog.Info("Ошибка фетчера: %v",
-					"error", err,
-				)
-			}
-		}()
+		}
+
+		// PhishTank (каждый час)
+		c.AddFunc("@hourly", func() {
+			runJob("PhishTank", phishService.Run)
+		})
+
+		// URLhaus (каждые 30 минут)
+		c.AddFunc("@every 30m", func() {
+			runJob("URLhaus", urlHausService.Run)
+		})
+
+		// OpenPhish (каждые 2 часа)
+		c.AddFunc("@every 12h", func() {
+			runJob("OpenPhish", openphishService.Run)
+		})
+
+		// ThreatFox (каждые 4 часа)
+		c.AddFunc("@every 1h", func() {
+			runJob("ThreatFox", threatfoxService.Run)
+		})
+
+		c.Start()
+
+		// ВАЖНО: Запускаем обновление прямо сейчас (при старте), чтобы не ждать час
+		// Делаем это в горутинах, чтобы не блокировать запуск сервера
+		go runJob("PhishTank (Init)", phishService.Run)
+		go runJob("URLhaus (Init)", urlHausService.Run)
+		go runJob("OpenPhish (Init)", openphishService.Run)
+		go runJob("ThreatFox (Init)", threatfoxService.Run)
 	}
 
 	// 7. Настройка Web Server
@@ -149,6 +163,7 @@ func main() {
 	app.Use(cors.New())    // Разрешаем запросы с браузера
 
 	// Auth
+	// Можно включить но надо будет раскоментировать API_KEY в docker-compose.
 	// app.Use(func(c *fiber.Ctx) error {
 	// 	// Читаем заголовок Authorization или параметр ?key=
 	// 	key := c.Get("X-API-Key")
