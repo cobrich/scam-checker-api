@@ -25,7 +25,7 @@ func (s *StopForumSpamService) Run(ctx context.Context) error {
 	url := "https://www.stopforumspam.com/downloads/toxic_domains_whole.txt"
 	slog.Info("Запуск обновления StopForumSpam...")
 
-	client := &http.Client{Timeout: 120 * time.Second}
+	client := &http.Client{Timeout: 300 * time.Second}
 	
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {

@@ -24,7 +24,7 @@ func (s *GithubPhishingService) Run(ctx context.Context) error {
 	url := "https://raw.githubusercontent.com/mitchellkrogza/Phishing.Database/master/phishing-links-ACTIVE.txt"
 	slog.Info("Starting Github Phishing update", "url", url)
 
-	client := &http.Client{Timeout: 120 * time.Second}
+	client := &http.Client{Timeout: 300 * time.Second}
 	
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {

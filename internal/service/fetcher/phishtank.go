@@ -32,7 +32,7 @@ func (s *PhishTankService) Run(ctx context.Context) error {
 	url := "https://data.phishtank.com/data/online-valid.json"
 	slog.Info("Запуск обновления PhishTank...")
 
-	client := &http.Client{Timeout: 120 * time.Second} // Увеличим таймаут, файл большой
+	client := &http.Client{Timeout: 300 * time.Second} // Увеличим таймаут, файл большой
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("User-Agent", "scam-checker-bot/1.0")
 	// Явно просим сжатие (хороший тон)
