@@ -40,13 +40,13 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-    redis:
-      image: redis:alpine
-      container_name: scam-checker-redis
-      restart: always
-      # Порты можно не прокидывать наружу, если доступ нужен только API
-      ports:
-        - "6379:6379"
+  redis:
+    image: redis:alpine
+    container_name: scam-checker-redis
+    restart: always
+    # Порты можно не прокидывать наружу, если доступ нужен только API
+    ports:
+      - "6380:6379"
 
 volumes:
   postgres_data:
