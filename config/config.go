@@ -9,6 +9,7 @@ import (
 
 type Config struct {
 	PostgresURL    string
+	RedisURL       string
 	AppPort        string
 	EnableFetchers string
 }
@@ -24,7 +25,8 @@ func LoadConfig() (*Config, error) {
 	}
 
 	cfg := &Config{
-		PostgresURL:    os.Getenv("DATABASE_URL"), // postgres://user:pass@localhost:5432/dbname
+		PostgresURL:    os.Getenv("DATABASE_URL"), // postgres://user:pass@localhost:5432/dbnameRedisURL:       os.Getenv("REDIS_URL"),
+		RedisURL:       os.Getenv("REDIS_URL"),
 		AppPort:        os.Getenv("APP_PORT"),
 		EnableFetchers: os.Getenv("RUN_FETCHERS"),
 	}

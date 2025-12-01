@@ -12,6 +12,7 @@ import (
 	"github.com/cobrich/scam-checker-api/internal/pkg/logger"
 	"github.com/cobrich/scam-checker-api/internal/repository"
 	"github.com/cobrich/scam-checker-api/internal/service"
+	"github.com/cobrich/scam-checker-api/internal/service/cache"
 	"github.com/cobrich/scam-checker-api/internal/service/fetcher"
 	"github.com/cobrich/scam-checker-api/internal/service/infra"
 	"github.com/cobrich/scam-checker-api/internal/transport/rest"
@@ -95,10 +96,24 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Redis Cache
+	var redisCache *cache.RedisCache
+	if cfg.RedisURL != "" {
+		r, err := cache.NewRedisCache(cfg.RedisURL, 10*time.Minute) // TTL 10 минут
+		if err != nil {
+			slog.Error("Failed to connect to Redis", "error", err)
+			// Можно продолжить без кэша, или упасть. Лучше продолжить.
+		} else {
+			redisCache = r
+			slog.Info("Connected to Redis")
+			defer redisCache.Close()
+		}
+	}
+
 	// Сервисы
 	whitelistService := service.NewWhitelistService(ctx, threatRepo)
 	infraService := infra.NewInfraService(cityDB, asnDB, appConfig)
-	checkerService := service.NewCheckerService(threatRepo, whitelistService, infraService, appConfig)
+	checkerService := service.NewCheckerService(threatRepo, whitelistService, infraService, appConfig, redisCache)
 
 	// 6. Запуск Фетчеров
 	shouldRunFetchers := cfg.EnableFetchers == "true"
@@ -253,6 +268,10 @@ func main() {
 			return c.Status(429).JSON(fiber.Map{"error": "Too many requests"})
 		},
 	}))
+
+	app.Get("/favicon.ico", func(c *fiber.Ctx) error {
+		return c.SendStatus(204) // No Content
+	})
 
 	// 8. Роуты
 	// Healthcheck (для Docker/K8s)

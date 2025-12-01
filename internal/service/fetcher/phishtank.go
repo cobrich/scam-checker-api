@@ -1,7 +1,7 @@
 package fetcher
 
 import (
-	"compress/gzip" // <--- ВАЖНО
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -100,7 +100,7 @@ func (s *PhishTankService) Run(ctx context.Context) error {
 		if len(batch) >= batchSize {
 			inserted, err := s.repo.SaveBatch(ctx, batch)
 			if err != nil {
-				slog.Error("PhishTank DB Error: %v\n",
+				slog.Error("PhishTank DB Error:",
 					"error", err,
 				)
 			}
@@ -108,9 +108,7 @@ func (s *PhishTankService) Run(ctx context.Context) error {
 			batch = batch[:0]
 
 			if totalRead%5000 == 0 {
-				slog.Error("PhishTank: Прочитано %d...\n",
-					"total_read", totalRead,
-				)
+				slog.Info("PhishTank progress", "total_read", totalRead)
 			}
 		}
 	}

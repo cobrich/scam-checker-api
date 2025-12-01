@@ -10,6 +10,7 @@ import (
 	"github.com/cobrich/scam-checker-api/internal/pkg/utils"
 	"github.com/cobrich/scam-checker-api/internal/repository"
 	"github.com/cobrich/scam-checker-api/internal/service/analyzer"
+	"github.com/cobrich/scam-checker-api/internal/service/cache"
 	"github.com/cobrich/scam-checker-api/internal/service/infra"
 	"github.com/cobrich/scam-checker-api/internal/service/whois"
 )
@@ -20,19 +21,32 @@ type CheckerService struct {
 	infra     *infra.InfraService
 	whois     *whois.WhoisService
 	analyzer  *analyzer.Analyzer
+	cache     *cache.RedisCache
 }
 
-func NewCheckerService(repo *repository.ThreatRepository, whitelist *WhitelistService, infra *infra.InfraService, cfg *domain.AppConfig) *CheckerService {
+func NewCheckerService(repo *repository.ThreatRepository, whitelist *WhitelistService,
+	infra *infra.InfraService, cfg *domain.AppConfig, redisCache *cache.RedisCache) *CheckerService {
 	return &CheckerService{
 		repo:      repo,
 		whitelist: whitelist,
 		infra:     infra,
 		whois:     whois.NewWhoisService(),
 		analyzer:  analyzer.NewAnalyzer(cfg),
+		cache:     redisCache,
 	}
 }
 
 func (s *CheckerService) Analyze(ctx context.Context, rawURL string, fullScan bool) (*domain.FullReport, error) {
+	// check cache
+	cacheKey := fmt.Sprintf("check:%s", utils.HashURL(rawURL))
+	if s.cache != nil {
+		if cachedReport, err := s.cache.Get(ctx, cacheKey); err == nil && cachedReport != nil {
+			// Добавляем пометку, что ответ из кэша (опционально)
+			// cachedReport.Reason += " (Cached)"
+			return cachedReport, nil
+		}
+	}
+
 	// Инициализируем базовый отчет
 	report := &domain.FullReport{
 		Target:     rawURL,
@@ -69,9 +83,9 @@ func (s *CheckerService) Analyze(ctx context.Context, rawURL string, fullScan bo
 			report.Signals = append(report.Signals, fmt.Sprintf("Listed in %s as %s", t.Source, t.Type))
 		}
 
-		if !fullScan {
-			return report, nil
-		}
+		// if !fullScan {
+		// 	return report, nil
+		// }
 	}
 
 	// // 3. Analyzer (Heuristics)
@@ -97,7 +111,8 @@ func (s *CheckerService) Analyze(ctx context.Context, rawURL string, fullScan bo
 		IsTrustedASN:  false,
 	}
 
-	if fullScan && domainName != "" {
+	// if fullScan && domainName != ""
+	if domainName != "" {
 		// Запрашиваем Whois. Это может занять 1-2 секунды.
 		whoisCtx, wCancel := context.WithTimeout(ctx, 1500*time.Millisecond)
 		defer wCancel()
@@ -192,6 +207,14 @@ func (s *CheckerService) Analyze(ctx context.Context, rawURL string, fullScan bo
 	}
 	if len(report.Signals) == 0 {
 		report.Signals = nil
+	}
+
+	// save in cache
+	if s.cache != nil {
+		// Сохраняем в фоне, чтобы не тормозить ответ
+		go func() {
+			_ = s.cache.Set(context.Background(), cacheKey, report)
+		}()
 	}
 
 	return report, nil
