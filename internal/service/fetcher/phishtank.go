@@ -30,12 +30,11 @@ type phishTankEntry struct {
 
 func (s *PhishTankService) Run(ctx context.Context) error {
 	url := "https://data.phishtank.com/data/online-valid.json"
-	slog.Info("Запуск обновления PhishTank...")
+	slog.Info("Starting PhishTank...")
 
-	client := &http.Client{Timeout: 300 * time.Second} // Увеличим таймаут, файл большой
+	client := &http.Client{Timeout: 300 * time.Second}
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("User-Agent", "scam-checker-bot/1.0")
-	// Явно просим сжатие (хороший тон)
 	req.Header.Set("Accept-Encoding", "gzip")
 
 	resp, err := client.Do(req)
@@ -48,9 +47,7 @@ func (s *PhishTankService) Run(ctx context.Context) error {
 		return fmt.Errorf("PhishTank server error: %d", resp.StatusCode)
 	}
 
-	// --- МАГИЯ GZIP ---
 	var reader io.ReadCloser
-	// Проверяем, сжал ли сервер ответ
 	if resp.Header.Get("Content-Encoding") == "gzip" {
 		gz, err := gzip.NewReader(resp.Body)
 		if err != nil {
@@ -61,11 +58,9 @@ func (s *PhishTankService) Run(ctx context.Context) error {
 	} else {
 		reader = resp.Body
 	}
-	// ------------------
 
 	decoder := json.NewDecoder(reader)
 
-	// Читаем открывающую скобку '['
 	if _, err := decoder.Token(); err != nil {
 		return fmt.Errorf("invalid json start: %v", err)
 	}
@@ -78,12 +73,9 @@ func (s *PhishTankService) Run(ctx context.Context) error {
 	batchSize := 1000
 	batch := make([]domain.Threat, 0, batchSize)
 
-	slog.Info("PhishTank: Начинаю потоковый парсинг...")
-
 	for decoder.More() {
 		var item phishTankEntry
 		if err := decoder.Decode(&item); err != nil {
-			// Если одна строка битая, не падаем, идем дальше
 			continue
 		}
 
@@ -106,10 +98,6 @@ func (s *PhishTankService) Run(ctx context.Context) error {
 			}
 			totalInserted += inserted
 			batch = batch[:0]
-
-			if totalRead%5000 == 0 {
-				slog.Info("PhishTank progress", "total_read", totalRead)
-			}
 		}
 	}
 
@@ -118,7 +106,7 @@ func (s *PhishTankService) Run(ctx context.Context) error {
 		totalInserted += inserted
 	}
 
-	slog.Info("=== PhishTank ЗАВЕРШЕН: %d строк, %d новых ===\n",
+	slog.Info("=== PhishTank ENDED:",
 		"total_read", totalRead,
 		"inserted", totalInserted,
 	)

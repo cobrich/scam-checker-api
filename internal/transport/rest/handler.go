@@ -26,25 +26,12 @@ func (h *Handler) CheckURL(c *fiber.Ctx) error {
 		})
 	}
 
-	// Читаем флаг full. Если ?full=true, то переменная будет true.
-	// Если параметра нет или он другой, будет false.
-	fullScan := c.Query("full") == "true"
-
-	// Вызываем метод Analyze (бывший Check)
-	report, err := h.checker.Analyze(c.Context(), urlToCheck, fullScan)
+	report, err := h.checker.Analyze(c.Context(), urlToCheck)
 	if err != nil {
-		// Логируем ошибку для себя, пользователю отдаем 500
 		return c.Status(500).JSON(fiber.Map{
 			"error": "Internal server error",
 		})
 	}
 
-	// Проверяем формат
-	if c.Query("format") == "apivoid" {
-		apiVoidResp := ConvertToApiVoid(report)
-		return c.JSON(apiVoidResp)
-	}
-
-	// Просто отдаем структуру отчета, Fiber сам превратит её в красивый JSON
 	return c.JSON(report)
 }

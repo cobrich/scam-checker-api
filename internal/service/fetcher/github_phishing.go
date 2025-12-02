@@ -71,7 +71,7 @@ func (s *GithubPhishingService) Run(ctx context.Context) error {
 		totalInserted += inserted
 	}
 
-	slog.Info("=== Github Phishing ЗАВЕРШЕН: новых ===\n",
+	slog.Info("=== Github Phishing Ended:",
 		"totalInserted", totalInserted,
 	)
 	return nil

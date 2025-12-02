@@ -15,17 +15,16 @@ type Config struct {
 }
 
 func LoadConfig() (*Config, error) {
-	// Загружаем .env файл, если он есть (для локальной разработки)
+	// Load the .env file, if it exists (for local development)
 	if err := godotenv.Load(); err != nil {
-		// Если файла .env нет (например, в Docker мы передаем переменные напрямую),
-		// это не должно быть критической ошибкой.
-		// Лучше просто проигнорировать ошибку или проверить os.IsNotExist
-		// return nil, err  <-- Убери return, пусть программа продолжает работу
+		// If the .env file does not exist (for example, in Docker we pass variables directly),
+		// this should not be a critical error.
+		// It is better to simply ignore the error or check os.IsNotExist
 		slog.Info("No .env file found, using system environment variables")
 	}
 
 	cfg := &Config{
-		PostgresURL:    os.Getenv("DATABASE_URL"), // postgres://user:pass@localhost:5432/dbnameRedisURL:       os.Getenv("REDIS_URL"),
+		PostgresURL:    os.Getenv("DATABASE_URL"), // postgres://user:pass@localhost:5432/dbnameRedisURL:
 		RedisURL:       os.Getenv("REDIS_URL"),
 		AppPort:        os.Getenv("APP_PORT"),
 		EnableFetchers: os.Getenv("RUN_FETCHERS"),

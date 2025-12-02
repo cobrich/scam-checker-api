@@ -24,7 +24,7 @@ func NewUrlHausService(repo *repository.ThreatRepository) *UrlHausService {
 
 func (s *UrlHausService) Run(ctx context.Context) error {
 	url := "https://urlhaus.abuse.ch/downloads/csv_online/"
-	slog.Info("Запуск обновления URLhaus...")
+	slog.Info("Starting URLhaus...")
 
 	client := &http.Client{Timeout: 120 * time.Second} // Файл может быть большим
 	req, _ := http.NewRequest("GET", url, nil)
@@ -35,12 +35,9 @@ func (s *UrlHausService) Run(ctx context.Context) error {
 	}
 	defer resp.Body.Close()
 
-	// Создаем CSV ридер
 	reader := csv.NewReader(resp.Body)
 
-	// В URLhaus комментарии начинаются с #, скажем ридеру игнорировать их
 	reader.Comment = '#'
-	// Разрешаем переменное количество полей (на всякий случай)
 	reader.FieldsPerRecord = -1
 
 	var (
@@ -53,19 +50,14 @@ func (s *UrlHausService) Run(ctx context.Context) error {
 	batch := make([]domain.Threat, 0, batchSize)
 
 	for {
-		// Читаем строку за строкой
 		record, err := reader.Read()
 		if err == io.EOF {
-			break // Конец файла
+			break
 		}
 		if err != nil {
 			fmt.Printf("Ошибка CSV строки: %v\n", err)
 			continue
 		}
-
-		// Формат CSV URLhaus:
-		// id, dateadded, url, url_status, last_online, threat, tags, urlhaus_link, reporter
-		// Нам нужен индекс 0 (id) и индекс 2 (url)
 
 		if len(record) < 3 {
 			continue
@@ -83,23 +75,16 @@ func (s *UrlHausService) Run(ctx context.Context) error {
 		}
 		batch = append(batch, threat)
 
-		// Сохраняем пачками
 		if len(batch) >= batchSize {
 			inserted, err := s.repo.SaveBatch(ctx, batch)
 			if err != nil {
-				slog.Error("Ошибка сохранения: %v\n",
+				slog.Error("Error saving: %v\n",
 					"error", err,
 				)
 			}
 			totalInserted += inserted
 			totalSkipped += (int64(len(batch)) - inserted)
 			batch = batch[:0]
-
-			if totalRead%5000 == 0 {
-				slog.Error("URLhaus: Обработано %d...\n",
-					"total_read", totalRead,
-				)
-			}
 		}
 	}
 
@@ -110,7 +95,7 @@ func (s *UrlHausService) Run(ctx context.Context) error {
 		totalSkipped += (int64(len(batch)) - inserted)
 	}
 
-	slog.Info("=== UrlHaus ЗАВЕРШЕН: %d строк, %d новых ===\n",
+	slog.Info("=== UrlHaus ENDED:",
 		"total_read", totalRead,
 		"inserted", totalInserted,
 	)

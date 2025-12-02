@@ -16,16 +16,14 @@ func NewWhoisService() *WhoisService {
 	return &WhoisService{}
 }
 
-// GetInfo делает запрос к WHOIS серверу и парсит ответ
+// GetInfo makes rewuest to WHOIS server and parsing response
 func (s *WhoisService) GetInfo(ctx context.Context, domainName string) *domain.WhoisInfo {
-		// Создаем канал для результата
 	type result struct {
 		raw string
 		err error
 	}
 	ch := make(chan result, 1)
 
-	// Запускаем WHOIS в горутине
 	go func() {
 		raw, err := whois.Whois(domainName)
 		ch <- result{raw, err}
@@ -34,27 +32,27 @@ func (s *WhoisService) GetInfo(ctx context.Context, domainName string) *domain.W
 	var raw string
 	var err error
 
-	// Ждем результат ИЛИ таймаут 3 секунды
 	select {
 	case res := <-ch:
 		raw = res.raw
 		err = res.err
 	case <-time.After(3 * time.Second):
-		return nil // Таймаут WHOIS
+		return nil
 	case <-ctx.Done():
-		return nil // Таймаут родительского контекста
+		return nil
 	}
 
 	if err != nil {
 		return nil
 	}
-	// 1. Raw запрос
+
+	// 1. Raw query
 	raw, err = whois.Whois(domainName)
 	if err != nil {
 		return nil
 	}
 
-	// 2. Парсинг
+	// 2. Parsing
 	parsed, err := whoisparser.Parse(raw)
 	if err != nil {
 		return nil
@@ -66,7 +64,7 @@ func (s *WhoisService) GetInfo(ctx context.Context, domainName string) *domain.W
 		ExpiresDate: parsed.Domain.ExpirationDate,
 	}
 
-	// 3. Вычисление возраста (Умный парсинг)
+	// 3. Calculate age
 	if parsed.Domain.CreatedDate != "" {
 		days := calculateAge(parsed.Domain.CreatedDate)
 		info.DomainAgeDays = days
@@ -75,13 +73,10 @@ func (s *WhoisService) GetInfo(ctx context.Context, domainName string) *domain.W
 	return info
 }
 
-// calculateAge пытается распарсить дату разными способами
 func calculateAge(dateStr string) int {
-	// Очищаем строку от лишнего мусора, который бывает в WHOIS
-	// Например: "2017-07-24 07:01:29 (GMT+0:00)" -> нас интересует начало
 	dateStr = strings.TrimSpace(dateStr)
 
-	// Список форматов, которые встречаются в дикой природе
+	// list of fromats
 	formats := []string{
 		time.RFC3339,
 		"2006-01-02T15:04:05Z",           // ISO8601
@@ -98,11 +93,8 @@ func calculateAge(dateStr string) int {
 	var t time.Time
 	var err error
 
-	// Пробуем форматы по очереди
 	for _, format := range formats {
-		// Для сложных форматов с таймзоной в скобках можно попробовать обрезать
 		if strings.Contains(dateStr, "(") && !strings.Contains(format, "(") {
-			// Попытка взять только дату "2017-07-24" из длинной строки
 			if len(dateStr) >= 10 {
 				t, err = time.Parse("2006-01-02", dateStr[:10])
 				if err == nil {
@@ -117,11 +109,9 @@ func calculateAge(dateStr string) int {
 		}
 	}
 
-	// Если ничего не подошло, возвращаем 0
 	if err != nil {
 		return 0
 	}
 
-	// Считаем дни
 	return int(time.Since(t).Hours() / 24)
 }

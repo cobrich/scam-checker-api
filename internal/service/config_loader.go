@@ -17,7 +17,7 @@ func NewConfigLoader(repo *repository.ThreatRepository) *ConfigLoader {
 	return &ConfigLoader{repo: repo}
 }
 
-// LoadAll загружает все настройки из БД в структуру
+// LoadAll, loads all from config
 func (l *ConfigLoader) LoadAll(ctx context.Context) (*domain.AppConfig, error) {
 	cfg := &domain.AppConfig{}
 	var err error

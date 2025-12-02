@@ -5,28 +5,27 @@ import (
 	"strings"
 )
 
-// ExtractHostname извлекает чистый домен из строки.
-// Пример: "https://www.Google.com/search" -> "google.com"
+// ExtractHostname extracting domain from url string.
+// Example: "https://www.Google.com/search" -> "google.com"
 func ExtractHostname(rawURL string) (string, error) {
-	// 1. Приводим к нижнему регистру и убираем пробелы
+	// 1. Make lower case and drop spaces
 	cleanURL := strings.TrimSpace(strings.ToLower(rawURL))
 
-	// 2. Хак для net/url: если нет протокола, парсер работает неправильно.
-	// Добавляем фиктивный протокол, если его нет.
+	// 2. Add protocol if not
 	if !strings.HasPrefix(cleanURL, "http://") && !strings.HasPrefix(cleanURL, "https://") {
 		cleanURL = "http://" + cleanURL
 	}
 
-	// 3. Парсим
+	// 3. Parsing
 	u, err := url.Parse(cleanURL)
 	if err != nil {
 		return "", err // Невалидный URL
 	}
 
-	// 4. Получаем Hostname (без порта, если он был, например :8080)
+	// 4. Getting Hostname without port
 	hostname := u.Hostname()
 
-	// 5. Убираем "www." (обычно в белых списках хранят домены без www)
+	// 5. Drop www
 	hostname = strings.TrimPrefix(hostname, "www.")
 
 	return hostname, nil

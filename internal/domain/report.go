@@ -1,31 +1,30 @@
 package domain
 
-// FullReport - Плоская и понятная структура
+// FullReport
 type FullReport struct {
 	Target    string `json:"target"`
 	Verdict   string `json:"verdict"`    // Safe, Suspicious, Dangerous
 	RiskScore int    `json:"risk_score"` // 0-100
 	Reason    string `json:"reason,omitempty"`
 
-	// Краткая сводка и сигналы
 	Summary *HeuristicSummary `json:"summary,omitempty"`
 	Signals []string          `json:"signals,omitempty"`
 
-	// 1. Факты из баз данных (Точное совпадение)
+	// 1. Is in DB
 	Blacklists []BlacklistInfo `json:"blacklists,omitempty"`
 
-	// 2. Анализ поведения и текста (Подозрения)
+	// 2. Heroustics, logic analyze
 	Heuristics []RuleMatch `json:"heuristics,omitempty"`
 
-	// 3. Технические данные (Инфраструктура)
+	// 3. Network info
 	Infrastructure *GeoNetInfo `json:"infrastructure,omitempty"`
 
-	// 4. Данные WHOIS (НОВОЕ)
+	// 4. WHOIS
 	Whois *WhoisInfo `json:"whois,omitempty"`
 }
 
 type HeuristicSummary struct {
-	Critical int `json:"critical"` // Кол-во критических угроз
+	Critical int `json:"critical"`
 	High     int `json:"high"`
 	Medium   int `json:"medium"`
 	Low      int `json:"low"`
@@ -48,7 +47,6 @@ type GeoNetInfo struct {
 	Status string `json:"status"` // "Online" или "Offline"
 	IP     string `json:"ip,omitempty"`
 
-	// Вложенные структуры (указатели, чтобы скрывать через nil)
 	Geo *GeoLocation `json:"geolocation,omitempty"`
 	SSL *SSLInfo     `json:"ssl,omitempty"`
 	DNS *DNSDetails  `json:"dns,omitempty"`
@@ -91,5 +89,5 @@ type WhoisInfo struct {
 	Registrar     string `json:"registrar,omitempty"`    // GoDaddy, Namecheap...
 	CreatedDate   string `json:"created_date,omitempty"` // 2024-01-01
 	ExpiresDate   string `json:"expires_date,omitempty"`
-	DomainAgeDays int    `json:"domain_age_days"` // Самое важное поле!
+	DomainAgeDays int    `json:"domain_age_days"`
 }

@@ -23,7 +23,6 @@ func NewRedisCache(redisURL string, ttl time.Duration) (*RedisCache, error) {
 
 	client := redis.NewClient(opts)
 
-	// Проверяем соединение
 	if err := client.Ping(context.Background()).Err(); err != nil {
 		return nil, err
 	}
@@ -37,7 +36,7 @@ func NewRedisCache(redisURL string, ttl time.Duration) (*RedisCache, error) {
 func (c *RedisCache) Get(ctx context.Context, key string) (*domain.FullReport, error) {
 	val, err := c.client.Get(ctx, key).Result()
 	if err == redis.Nil {
-		return nil, nil // Ключ не найден
+		return nil, nil
 	}
 	if err != nil {
 		return nil, err

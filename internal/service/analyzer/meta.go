@@ -12,7 +12,6 @@ import (
 	"github.com/cobrich/scam-checker-api/internal/domain"
 )
 
-// Регулярки оставляем глобальными (они не меняются)
 var (
 	ipRegex            = regexp.MustCompile(`^(\d{1,3}\.){3}\d{1,3}$`)
 	unicodeConfusables = regexp.MustCompile(`[^\x00-\x7F]`)
@@ -20,7 +19,6 @@ var (
 	base64Like         = regexp.MustCompile(`^[A-Za-z0-9+/]{20,}={0,2}$`)
 )
 
-// Категории риска
 type category string
 
 const (
@@ -30,7 +28,6 @@ const (
 	Low      category = "low"
 )
 
-// AnalyzeMeta — метаданные для умного анализа
 type AnalyzeMeta struct {
 	IsWhitelisted bool
 	IsBlacklisted bool
@@ -38,12 +35,10 @@ type AnalyzeMeta struct {
 	IsTrustedASN  bool
 }
 
-// Analyzer - теперь это структура, хранящая конфиг
 type Analyzer struct {
 	cfg *domain.AppConfig
 }
 
-// NewAnalyzer создает инстанс анализатора с загруженным конфигом
 func NewAnalyzer(cfg *domain.AppConfig) *Analyzer {
 	return &Analyzer{cfg: cfg}
 }
@@ -56,7 +51,7 @@ func (a *Analyzer) Analyze(rawURL string, meta *AnalyzeMeta) (int, []domain.Rule
 
 	var rules []domain.RuleMatch
 
-	// Парсинг
+	// Parsing
 	rawURL = strings.TrimSpace(rawURL)
 	u, err := url.Parse(rawURL)
 	if err != nil || u.Hostname() == "" {
@@ -73,7 +68,7 @@ func (a *Analyzer) Analyze(rawURL string, meta *AnalyzeMeta) (int, []domain.Rule
 	path := u.Path
 	query := u.RawQuery
 
-	// === ГЕНЕРАЦИЯ ПРАВИЛ ===
+	// === RULES ===
 
 	// 1. Protocol (Static)
 	if u.Scheme != "https" {
@@ -243,12 +238,9 @@ func (a *Analyzer) Analyze(rawURL string, meta *AnalyzeMeta) (int, []domain.Rule
 
 	categorySums := map[category]int{Critical: 0, High: 0, Medium: 0, Low: 0}
 
-	// Пробегаем по всем найденным правилам
 	for i := range rules {
 		r := &rules[i]
 
-		// Определяем категорию ДИНАМИЧЕСКИ на основе балла
-		// Это позволяет менять вес в БД, и категория изменится сама
 		if r.Score >= 40 {
 			categorySums[Critical] += r.Score
 		} else if r.Score >= 25 {
@@ -286,7 +278,7 @@ func (a *Analyzer) Analyze(rawURL string, meta *AnalyzeMeta) (int, []domain.Rule
 		multiplier += 0.30
 	}
 
-	// Комбо: Typosquatting + Punycode (ищем по именам, так как имена статичны)
+	// Typosquatting + Punycode
 	hasTypos := false
 	hasPuny := false
 	for _, r := range rules {
@@ -322,7 +314,7 @@ func (a *Analyzer) Analyze(rawURL string, meta *AnalyzeMeta) (int, []domain.Rule
 		score = 0
 	}
 
-	// Сортировка
+	// Sorting
 	sort.SliceStable(rules, func(i, j int) bool { return rules[i].Score > rules[j].Score })
 
 	return score, rules
@@ -339,6 +331,7 @@ func getTLD(host string) string {
 	}
 	return parts[len(parts)-1]
 }
+
 func calculateEntropy(s string) float64 {
 	if len(s) == 0 {
 		return 0
@@ -355,7 +348,9 @@ func calculateEntropy(s string) float64 {
 	}
 	return entropy
 }
+
 func isIPAddress(host string) bool { return ipRegex.MatchString(host) }
+
 func isPrintable(data []byte) bool {
 	if len(data) == 0 {
 		return false

@@ -23,7 +23,7 @@ func NewInfraService(city *geoip2.Reader, asn *geoip2.Reader, cfg *domain.AppCon
 	return &InfraService{geoCity: city, geoASN: asn, cfg: cfg}
 }
 
-// Scan выполняет все сетевые проверки и возвращает результат
+// Scan network
 func (s *InfraService) Scan(ctx context.Context, rawURL string) (*domain.GeoNetInfo, []domain.RuleMatch, int) {
 	domainName, _ := utils.ExtractHostname(rawURL)
 
@@ -31,25 +31,23 @@ func (s *InfraService) Scan(ctx context.Context, rawURL string) (*domain.GeoNetI
 	var rules []domain.RuleMatch
 	score := 0
 
-	// Мьютекс для безопасной записи в rules и score из разных горутин
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
 	// 1. DNS Resolve
-	// Используем LookupIP, чтобы проверить, жив ли сайт
-	// Создаем отдельный контекст для DNS. Максимум 2 секунды.
 	dnsCtx, dnsCancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer dnsCancel()
 
+	// LookupIP - is reachable site
 	start := time.Now()
 	ips, err := net.DefaultResolver.LookupIP(dnsCtx, "ip", domainName)
 	resolveTime := time.Since(start)
 
 	if err != nil || len(ips) == 0 {
-		return info, rules, score // Сайт мертв
+		return info, rules, score // unreachable
 	}
 
-	// Сайт жив
+	// reacable
 	info.Status = "Online"
 	info.IP = ips[0].String()
 
@@ -60,18 +58,17 @@ func (s *InfraService) Scan(ctx context.Context, rawURL string) (*domain.GeoNetI
 	// 2. GeoIP & Hosting
 	info.Geo = s.getGeoInfo(info.IP)
 
-	// Проверка страны (Используем s.cfg.GeoRisks)
+	// Coutry check
 	if val, ok := s.cfg.GeoRisks[info.Geo.Country]; ok {
 		score += val
 		rules = append(rules, domain.RuleMatch{Name: "Risky Country", Desc: info.Geo.Country, Score: val})
 	}
 
-	// Проверяем хостинг (возвращает баллы и правила)
+	// Hosting
 	hScore, hRules := s.analyzeHosting(info.Geo)
 	score += hScore
 	rules = append(rules, hRules...)
 
-	// 3. SSL
 	// Task A: SSL Check
 	wg.Add(1)
 	go func() {
@@ -92,12 +89,10 @@ func (s *InfraService) Scan(ctx context.Context, rawURL string) (*domain.GeoNetI
 		}
 	}()
 
-	// 4. DNS Details (MX)
 	// Task B: DNS Details (MX/NS)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		// Передаем контекст для таймаута!
 		dns := s.getDNSDetails(dnsCtx, domainName)
 
 		mu.Lock()
@@ -110,7 +105,6 @@ func (s *InfraService) Scan(ctx context.Context, rawURL string) (*domain.GeoNetI
 		}
 	}()
 
-	// 5. HTTP Content Analysis (НОВОЕ)
 	// Task C: HTTP Scan
 	wg.Add(1)
 	go func() {
@@ -126,19 +120,17 @@ func (s *InfraService) Scan(ctx context.Context, rawURL string) (*domain.GeoNetI
 		}
 	}()
 
-	// Ждем всех
 	wg.Wait()
 
 	return info, rules, score
 }
 
-// --- Вспомогательные методы ---
+// helpers
 
 func (s *InfraService) getDNSDetails(ctx context.Context, domainName string) *domain.DNSDetails {
 	details := &domain.DNSDetails{}
 	found := false
 
-	// Используем Resolver с контекстом, чтобы не зависать на MX
 	resolver := net.DefaultResolver
 
 	// MX
@@ -187,7 +179,7 @@ func (s *InfraService) getGeoInfo(ip string) *domain.GeoLocation {
 	return geo
 }
 
-// analyzeHosting проверяет, не используется ли подозрительный хостинг
+// analyzeHosting is legal hosting
 func (s *InfraService) analyzeHosting(geo *domain.GeoLocation) (int, []domain.RuleMatch) {
 	score := 0
 	var rules []domain.RuleMatch
@@ -198,10 +190,8 @@ func (s *InfraService) analyzeHosting(geo *domain.GeoLocation) (int, []domain.Ru
 
 	ispLower := strings.ToLower(geo.ISP)
 
-	// Проходим по списку из БД
 	for _, hostRule := range s.cfg.Hosting {
 		if strings.Contains(ispLower, strings.ToLower(hostRule.Pattern)) {
-			// Если это Bulletproof - штрафуем сильно
 			if hostRule.Type == "bulletproof" {
 				score += hostRule.Score
 				rules = append(rules, domain.RuleMatch{
@@ -209,17 +199,15 @@ func (s *InfraService) analyzeHosting(geo *domain.GeoLocation) (int, []domain.Ru
 					Desc:  geo.ISP,
 					Score: hostRule.Score,
 				})
-				return score, rules // Нашли худшее, выходим
+				return score, rules
 			}
 
-			// Если Cloud - просто информируем (score может быть 0 или 5)
 			if hostRule.Type == "cloud" {
 				rules = append(rules, domain.RuleMatch{
 					Name:  "Cloud Hosting",
 					Desc:  geo.ISP,
 					Score: hostRule.Score,
 				})
-				// Не выходим, вдруг там еще что-то
 				break
 			}
 		}
@@ -231,7 +219,7 @@ func (s *InfraService) getSSLDetails(domainName string) *domain.SSLInfo {
 	info := &domain.SSLInfo{Valid: false, IsHTTPS: false}
 
 	dialer := &net.Dialer{Timeout: 1 * time.Second}
-	// InsecureSkipVerify: true, потому что нам важно получить инфу о сертификате, даже если он просрочен
+	// InsecureSkipVerify: true, because it is important for us to obtain information about the certificate, even if it has expired
 	conn, err := tls.DialWithDialer(dialer, "tcp", domainName+":443", &tls.Config{InsecureSkipVerify: true})
 
 	if err != nil {
@@ -261,7 +249,7 @@ func (s *InfraService) getSSLDetails(domainName string) *domain.SSLInfo {
 	return info
 }
 
-// analyzeSSL оценивает сертификат
+// analyzeSSL rate certificate
 func (s *InfraService) analyzeSSL(ssl *domain.SSLInfo) (int, []domain.RuleMatch) {
 	score := 0
 	var rules []domain.RuleMatch
@@ -288,7 +276,6 @@ func (s *InfraService) analyzeSSL(ssl *domain.SSLInfo) (int, []domain.RuleMatch)
 		rules = append(rules, domain.RuleMatch{Name: "Fresh SSL", Desc: "Created this week", Score: 5})
 	}
 
-	// Проверка на бесплатные сертификаты на новых доменах
 	isFreeCert := strings.Contains(ssl.Issuer, "Let's Encrypt") || strings.Contains(ssl.Issuer, "ZeroSSL") // || strings.Contains(ssl.Issuer, "Google Trust Services")
 	if isFreeCert && ssl.AgeDays < 14 {
 		score += 5

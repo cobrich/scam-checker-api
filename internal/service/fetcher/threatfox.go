@@ -30,7 +30,7 @@ type ThreatFoxItem struct {
 
 func (s *ThreatFoxService) Run(ctx context.Context) error {
 	url := "https://threatfox.abuse.ch/export/json/recent/"
-	slog.Info("Запуск обновления ThreatFox...")
+	slog.Info("Starting ThreatFox...")
 
 	client := &http.Client{Timeout: 120 * time.Second}
 
@@ -55,11 +55,9 @@ func (s *ThreatFoxService) Run(ctx context.Context) error {
 		return fmt.Errorf("failed to read body: %v", err)
 	}
 
-	// ВАЖНО: Парсим как карту, где ключ = ID (строка)
 	var data map[string][]ThreatFoxItem
 
 	if err := json.Unmarshal(bodyBytes, &data); err != nil {
-		// Если ошибка, выводим превью для отладки
 		preview := string(bodyBytes)
 		if len(preview) > 100 {
 			preview = preview[:100]
@@ -70,10 +68,8 @@ func (s *ThreatFoxService) Run(ctx context.Context) error {
 	batch := make([]domain.Threat, 0, 1000)
 	count := 0
 
-	// Проходим по карте (key = ID угрозы)
 	for id, items := range data {
 		for _, item := range items {
-			// Берем URL и Домены. IP пропускаем (ip:port), так как наш чекер для ссылок.
 			if item.IocType != "url" && item.IocType != "domain" {
 				continue
 			}
@@ -81,7 +77,7 @@ func (s *ThreatFoxService) Run(ctx context.Context) error {
 			threat := domain.Threat{
 				URL:        item.IocValue,
 				Source:     "threatfox",
-				ExternalID: id, // ID берем из ключа карты
+				ExternalID: id,
 				Type:       item.ThreatType,
 			}
 			batch = append(batch, threat)
@@ -97,7 +93,7 @@ func (s *ThreatFoxService) Run(ctx context.Context) error {
 		s.repo.SaveBatch(ctx, batch)
 	}
 
-	slog.Info("=== ThreatFox ЗАВЕРШЕН: %d записей загружено ===\n",
+	slog.Info("=== ThreatFox ENDED:",
 		"count", count,
 	)
 	return nil

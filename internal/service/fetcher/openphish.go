@@ -22,7 +22,7 @@ func NewOpenPhishService(repo *repository.ThreatRepository) *OpenPhishService {
 
 func (s *OpenPhishService) Run(ctx context.Context) error {
 	url := "https://openphish.com/feed.txt"
-	slog.Info("Запуск обновления OpenPhish...")
+	slog.Info("Starting OpenPhish...")
 
 	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Get(url)
@@ -37,7 +37,6 @@ func (s *OpenPhishService) Run(ctx context.Context) error {
 
 	scanner := bufio.NewScanner(resp.Body)
 
-	// Счетчики
 	var (
 		totalRead     int64 = 0
 		totalInserted int64 = 0
@@ -58,7 +57,7 @@ func (s *OpenPhishService) Run(ctx context.Context) error {
 			URL:        line,
 			Source:     "openphish",
 			Type:       "phishing",
-			ExternalID: "", // У них нет ID в бесплатном фиде
+			ExternalID: "",
 		}
 		batch = append(batch, threat)
 
@@ -72,7 +71,6 @@ func (s *OpenPhishService) Run(ctx context.Context) error {
 		}
 	}
 
-	// Сохраняем остатки
 	if len(batch) > 0 {
 		inserted, err := s.repo.SaveBatch(ctx, batch)
 		if err == nil {
@@ -80,8 +78,7 @@ func (s *OpenPhishService) Run(ctx context.Context) error {
 		}
 	}
 
-	// Красивый отчет
-	slog.Info("=== OpenPhish ЗАВЕРШЕН: %d строк, %d новых ===\n",
+	slog.Info("=== OpenPhish ENDED:",
 		"total_read", totalRead,
 		"inserted", totalInserted,
 	)

@@ -2,10 +2,10 @@ package repository
 
 import (
 	"context"
+
 	"github.com/cobrich/scam-checker-api/internal/domain"
 )
 
-// GetBrands загружает активные бренды
 func (r *ThreatRepository) GetBrands(ctx context.Context) ([]string, error) {
 	rows, err := r.db.Query(ctx, "SELECT name FROM config_brands") // Можно добавить WHERE is_active = true
 	if err != nil {
@@ -23,7 +23,6 @@ func (r *ThreatRepository) GetBrands(ctx context.Context) ([]string, error) {
 	return brands, nil
 }
 
-// GetKeywords загружает ключевые слова
 func (r *ThreatRepository) GetKeywords(ctx context.Context) (map[string]int, error) {
 	rows, err := r.db.Query(ctx, "SELECT word, score FROM config_keywords")
 	if err != nil {
@@ -42,7 +41,6 @@ func (r *ThreatRepository) GetKeywords(ctx context.Context) (map[string]int, err
 	return keywords, nil
 }
 
-// GetTLDs загружает доменные зоны
 func (r *ThreatRepository) GetTLDs(ctx context.Context) (map[string]int, error) {
 	rows, err := r.db.Query(ctx, "SELECT tld, score FROM config_tlds")
 	if err != nil {
@@ -61,7 +59,6 @@ func (r *ThreatRepository) GetTLDs(ctx context.Context) (map[string]int, error) 
 	return tlds, nil
 }
 
-// GetShorteners загружает сокращатели
 func (r *ThreatRepository) GetShorteners(ctx context.Context) (map[string]int, error) {
 	rows, err := r.db.Query(ctx, "SELECT domain, score FROM config_shorteners")
 	if err != nil {
@@ -80,7 +77,6 @@ func (r *ThreatRepository) GetShorteners(ctx context.Context) (map[string]int, e
 	return shorts, nil
 }
 
-// GetGeoRisks загружает страны
 func (r *ThreatRepository) GetGeoRisks(ctx context.Context) (map[string]int, error) {
 	rows, err := r.db.Query(ctx, "SELECT country_name, score FROM config_geo_risks")
 	if err != nil {
@@ -99,7 +95,6 @@ func (r *ThreatRepository) GetGeoRisks(ctx context.Context) (map[string]int, err
 	return geo, nil
 }
 
-// GetHosting загружает хостинг-провайдеров
 func (r *ThreatRepository) GetHosting(ctx context.Context) ([]domain.HostingConfig, error) {
 	rows, err := r.db.Query(ctx, "SELECT name_pattern, type, score FROM config_hosting")
 	if err != nil {

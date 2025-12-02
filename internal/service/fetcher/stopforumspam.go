@@ -23,10 +23,10 @@ func NewStopForumSpamService(repo *repository.ThreatRepository) *StopForumSpamSe
 
 func (s *StopForumSpamService) Run(ctx context.Context) error {
 	url := "https://www.stopforumspam.com/downloads/toxic_domains_whole.txt"
-	slog.Info("Запуск обновления StopForumSpam...")
+	slog.Info("Starting StopForumSpam...")
 
 	client := &http.Client{Timeout: 300 * time.Second}
-	
+
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return err
@@ -53,9 +53,6 @@ func (s *StopForumSpamService) Run(ctx context.Context) error {
 			continue
 		}
 
-		// Добавляем http:// чтобы формат был url, или храним как есть
-		// Лучше хранить как есть, но наш чекер хеширует URL.
-		// Вариант: добавлять http:// для совместимости
 		url := "http://" + line
 
 		threat := domain.Threat{
