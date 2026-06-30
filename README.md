@@ -1,197 +1,283 @@
-
----
-
 # 🛡️ Scam Checker API
 
-> **High-performance Threat Intelligence Platform & Phishing Scanner.**
-> An open-source alternative to APIVoid, VirusTotal, and URLScan, written in Go.
+Threat Intelligence API and phishing scanner built with Go.
 
-![Go Version](https://img.shields.io/badge/Go-1.23+-00ADD8?style=flat&logo=go)
-![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat&logo=docker)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-336791?style=flat&logo=postgresql)
-![Redis](https://img.shields.io/badge/Redis-Caching-DC382D?style=flat&logo=redis)
-![License](https://img.shields.io/badge/License-MIT-green)
+Scam Checker API detects phishing, malware, scam URLs, suspicious domains, and risky infrastructure using public threat feeds, heuristic analysis, Redis caching, and live URL scanning.
 
-**Scam Checker API** is a robust microservice designed to detect phishing, malware, and scam URLs in real-time. It combines **massive database lookups** (1M+ threats), **advanced heuristic analysis**, and **live infrastructure scanning** to provide a comprehensive risk score.
-
----
-
-## 🚀 Key Features
-
-### 1. Aggregated Threat Intelligence (7+ Feeds)
-Automatically fetches, deduplicates, and updates threat data from the world's best open sources:
-*   **PhishTank** (Phishing)
-*   **URLhaus** (Malware)
-*   **OpenPhish** (Phishing)
-*   **ThreatFox** (Botnets & IOCs)
-*   **GitHub Phishing Database** (1M+ entries)
-*   **VX Vault** (Malware distribution)
-*   **Phishing Army** (Phishing)
-*   **StopForumSpam** (Toxic Domains)
-
-### 2. Advanced Heuristic Engine (v2)
-Uses a weighted scoring system to detect unknown threats based on URL structure:
-*   **Typosquatting:** Detects fake brands (e.g., `goggle.com`, `faceb00k.com`) using Levenshtein distance.
-*   **Homograph Attacks:** Detects Punycode (`xn--`) and Unicode spoofing.
-*   **Obfuscation:** Detects Base64, Hex, and IPFS links.
-*   **High Entropy:** Detects DGA (Domain Generation Algorithms).
-*   **Semantic Analysis:** Analyzes suspicious keywords (`login`, `secure`, `verify`) in multiple languages (EN, FR, RU).
-
-### 3. Live Infrastructure Scanning
-Performs real-time network reconnaissance:
-*   **DNS Analysis:** Checks if the domain is alive, has MX records (email), and NS providers.
-*   **SSL/TLS Forensics:** Checks certificate validity, issuer, and age. Flags **"Fresh SSL"** (< 24h) and **"Free SSL"** on new domains.
-*   **GeoIP & ASN:** Detects hosting provider and country. Flags **"Bulletproof"** hosting and risky jurisdictions.
-*   **HTTP Content Scan:** Safely crawls the page to detect password fields, credit card forms, and redirect chains.
-
-### 4. Smart Scoring & Anti-False Positive
-*   **Risk Score (0-100):** Calculated using an aggressive weighted formula (Critical/High/Medium/Low).
-*   **Anti-FP Logic:** Automatically reduces risk score for:
-    *   Old domains (> 1 year).
-    *   Trusted Infrastructure (Google, Cloudflare, AWS).
-    *   Whitelisted domains.
-
-### 5. High Performance
-*   **Redis Caching:** Instant responses for repeated queries.
-*   **PostgreSQL Batch Inserts:** Handles massive data ingestion efficiently.
-*   **Concurrency:** All checks (DNS, SSL, HTTP) run in parallel.
+![Go](https://img.shields.io/badge/Go-1.23+-00ADD8?style=for-the-badge\&logo=go)
+![Fiber](https://img.shields.io/badge/Fiber-00ADD8?style=for-the-badge)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-4169E1?style=for-the-badge\&logo=postgresql)
+![Redis](https://img.shields.io/badge/Redis-Caching-DC382D?style=for-the-badge\&logo=redis)
+![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge\&logo=docker)
+![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 
 ---
 
-## 🛠️ Tech Stack
+## Features
 
-*   **Language:** Go (Golang) 1.23
-*   **Web Framework:** Fiber (Fast HTTP)
-*   **Database:** PostgreSQL (pgx driver)
-*   **Cache:** Redis
-*   **GeoIP:** MaxMind GeoLite2 (City & ASN)
-*   **Deployment:** Docker & Docker Compose
+| Feature             | Description                                                                           |
+| ------------------- | ------------------------------------------------------------------------------------- |
+| Threat feeds        | Aggregates phishing and malware URLs from multiple public sources                     |
+| Heuristic analysis  | Detects typosquatting, brand injection, suspicious keywords, entropy, and obfuscation |
+| Infrastructure scan | Checks DNS, SSL, HTTP content, redirects, and hosting signals                         |
+| Smart scoring       | Produces risk score from 0 to 100                                                     |
+| Redis cache         | Speeds up repeated checks                                                             |
+| PostgreSQL storage  | Stores normalized threat intelligence data                                            |
+| Docker support      | Runs API, PostgreSQL, and Redis locally                                               |
 
 ---
 
-## ⚡ Getting Started
+## Threat Intelligence Sources
+
+* PhishTank
+* URLhaus
+* OpenPhish
+* ThreatFox
+* GitHub Phishing Database
+* VX Vault
+* Phishing Army
+* StopForumSpam
+
+---
+
+## Architecture
+
+```mermaid
+flowchart TD
+    Client["Client / API User"] --> API["Fiber REST API"]
+
+    API --> Checker["Checker Service"]
+
+    Checker --> Whitelist["Whitelist Check"]
+    Checker --> Cache["Redis Cache"]
+    Checker --> DB["PostgreSQL Threat DB"]
+    Checker --> Heuristics["Heuristic Analyzer"]
+    Checker --> Infra["Infrastructure Scanner"]
+
+    Infra --> DNS["DNS Scan"]
+    Infra --> SSL["SSL/TLS Check"]
+    Infra --> HTTP["HTTP Content Scan"]
+    Infra --> WHOIS["WHOIS Analysis"]
+
+    Fetchers["Threat Feed Fetchers"] --> DB
+
+    Checker --> Score["Risk Scoring"]
+    Score --> API
+```
+
+---
+
+## Smart Pipeline
+
+1. **Whitelist Check** — trusted domains return immediately.
+2. **Redis Cache** — repeated checks are resolved quickly.
+3. **Database Lookup** — URL hash is checked against stored threat feeds.
+4. **Heuristic Analysis** — suspicious URL structure is analyzed.
+5. **Infrastructure Scan** — DNS, SSL, WHOIS, and HTTP signals are checked.
+6. **Risk Scoring** — signals are normalized into final verdict.
+
+---
+
+## Tech Stack
+
+* Go
+* Fiber
+* PostgreSQL
+* Redis
+* Docker
+* pgx
+* MaxMind GeoLite2
+* Public threat intelligence feeds
+
+---
+
+## Project Structure
+
+```text
+cmd/
+└── api/                 # API entrypoint
+
+config/                  # App configuration
+
+internal/
+├── app/                 # Server and background workers
+├── domain/              # Domain models
+├── repository/          # PostgreSQL repositories
+├── service/
+│   ├── analyzer/        # Heuristic analysis
+│   ├── cache/           # Redis cache
+│   ├── fetcher/         # Threat feed fetchers
+│   ├── infra/           # DNS / SSL / HTTP scanner
+│   ├── whois/           # WHOIS analysis
+│   ├── checker.go       # Main checking logic
+│   └── whitelist.go
+└── transport/
+    └── rest/            # HTTP handlers
+```
+
+---
+
+## Getting Started
 
 ### Prerequisites
-*   Docker & Docker Compose installed.
 
-### 1. Clone the repository
+* Docker
+* Docker Compose
+* MaxMind GeoLite2 City database
+* MaxMind GeoLite2 ASN database
+
+---
+
+### Clone
+
 ```bash
 git clone https://github.com/cobrich/scam-checker-api.git
 cd scam-checker-api
 ```
 
-### 2. Download GeoIP Databases
-Due to licensing, you must download `GeoLite2-City.mmdb` and `GeoLite2-ASN.mmdb` from [MaxMind](https://www.maxmind.com) (free account required) and place them in the **root directory** of the project.
+---
 
-### 3. Configuration (Optional)
-Create a `.env` file or modify `docker-compose.yml` if needed.
-```bash
-# Example .env
+### GeoIP Databases
+
+Download from MaxMind:
+
+* `GeoLite2-City.mmdb`
+* `GeoLite2-ASN.mmdb`
+
+Place both files in the project root.
+
+---
+
+### Environment
+
+```env
 APP_PORT=:8080
 DATABASE_URL=postgres://user:password@db:5432/scam_db
 REDIS_URL=redis://redis:6379/0
 RUN_FETCHERS=true
-# API_SECRET=my_secret_key (Uncomment to enable auth)
 ```
 
-### 4. Run with Docker
+---
+
+### Run
+
 ```bash
 docker compose up -d --build
 ```
 
-The API will be available at `http://localhost:8080`.
-*Note: The first run will take a few minutes to download and populate the threat database (over 1 million records).*
+API will be available at:
+
+```text
+http://localhost:8080
+```
 
 ---
 
-## 📖 API Documentation
+## API
 
-### Check a URL
+### Check URL
 
-**Endpoint:** `GET /api/check`
-
-**Parameters:**
-| Parameter | Type    | Description                                                                                                         |
-| :-------- | :------ | :------------------------------------------------------------------------------------------------------------------ |
-| `url`     | string  | **Required.** The URL to analyze.                                                                                   |
-| `full`    | boolean | `true` to perform live infrastructure scanning (slower ~3-5s, but more detailed). Default: `false` (fast DB check). |
-
-**Example Request:**
-```bash
-curl "http://localhost:8080/api/check?url=http://secure-login-apple.com&full=true"
+```http
+GET /api/check?url=http://secure-login-apple.com&full=true
 ```
 
-**Example Response (Dangerous):**
+| Parameter | Type    | Description                 |
+| --------- | ------- | --------------------------- |
+| url       | string  | URL to analyze              |
+| full      | boolean | Enables infrastructure scan |
+
+---
+
+### Example Response
+
 ```json
 {
   "target": "http://secure-login-apple.com",
   "verdict": "Dangerous",
   "risk_score": 100,
   "reason": "Suspicious Activity Detected",
-  "summary": {
-    "critical": 2,
-    "high": 1,
-    "medium": 0,
-    "low": 1
-  },
   "signals": [
     "Typosquatting",
     "Brand Injection",
-    "No HTTPS",
-    "Risky Country"
-  ],
-  "heuristics": [
-    {
-      "name": "Typosquatting",
-      "desc": "Token 'apple' ~ 'apple'",
-      "score": 55
-    },
-    {
-      "name": "Brand Injection",
-      "desc": "Brand 'apple' injected into domain",
-      "score": 40
-    }
+    "No HTTPS"
   ],
   "infrastructure": {
     "status": "Online",
-    "ip": "1.2.3.4",
-    "geolocation": {
-      "country": "China",
-      "isp": "Unknown Host"
-    },
-    "ssl": null
+    "ip": "1.2.3.4"
   }
 }
 ```
 
+---
+
 ### Health Check
-**Endpoint:** `GET /health`
+
+```http
+GET /health
+```
+
 ```json
-{"status": "ok"}
+{
+  "status": "ok"
+}
 ```
 
 ---
 
-## ⚙️ Architecture
+## Engineering Highlights
 
-The system follows a **Smart Pipeline** approach:
-
-1.  **Whitelist Check:** Instant return if domain is trusted (e.g., google.com).
-2.  **Database Lookup:** Checks URL hash against local PostgreSQL (1M+ threats).
-3.  **Heuristic Analysis:** Analyzes URL string for patterns (Typosquatting, Entropy, etc.).
-4.  **Infrastructure Scan (if `full=true`):**
-    *   Resolves DNS.
-    *   Checks SSL Certificate age.
-    *   Checks Hosting Provider (Cloud/Bulletproof).
-    *   Scans HTTP content for password fields.
-5.  **Scoring & Normalization:** Aggregates all signals, applies Anti-FP logic (e.g., reduces score for old domains), and returns final verdict.
+* Concurrent URL analysis pipeline
+* Redis-backed cache for repeated queries
+* PostgreSQL batch inserts for threat feeds
+* Smart scoring system
+* Anti-false-positive logic
+* Infrastructure scanning
+* Dockerized local environment
+* Modular Go project structure
 
 ---
 
-## 🛡️ License
+## Roadmap
+
+* [x] Threat feed aggregation
+* [x] URL risk scoring
+* [x] Redis caching
+* [x] PostgreSQL persistence
+* [x] DNS / SSL / HTTP scanning
+* [x] Docker Compose setup
+* [ ] API authentication
+* [ ] Admin dashboard
+* [ ] Prometheus metrics
+* [ ] Background feed update scheduler
+* [ ] Public API documentation
+* [ ] Rate limiting
+* [ ] CI/CD pipeline
+
+---
+
+## Lessons Learned
+
+Building Scam Checker API helped me improve:
+
+* Go backend architecture
+* Threat intelligence data processing
+* Concurrent network scanning
+* PostgreSQL optimization
+* Redis caching
+* Docker-based development
+* REST API design
+* Security-focused backend development
+
+---
+
+## License
 
 This project is licensed under the MIT License.
 
 ---
 
-**Developed with ❤️ by cobrich**
+## Author
+
+Bekzat Tursun
+
+GitHub: https://github.com/cobrich
